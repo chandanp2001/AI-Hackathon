@@ -1,0 +1,64 @@
+# Environment variables and credentials
+.env
+credentials.json
+token.json
+*.pem
+*.key
+*.crt
+config.py
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Logs
+logs/
+*.log
+
+# Cache directories
+.cache/
+cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+temp_install/
+*.tmp
+*.bak
+*.swp
+
+# Local development settings
+.idea/
+.vscode/
+*.sublime-*
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 
+
