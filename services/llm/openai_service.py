@@ -1,16 +1,25 @@
-"""Azure OpenAI GPT-5 service wrapper for relevance scoring and response synthesis.
+"""Azure OpenAI GPT-5 service wrapper with optimized prompts.
 
-This module provides a wrapper around the Azure OpenAI API with support for
-structured output parsing, retry logic, and proper error handling.
+This module provides a wrapper around the Azure OpenAI API with:
+- Intent classification for smart routing
+- Chain-of-thought relevance scoring
+- Few-shot response synthesis
+- Structured output parsing
 """
 
 import json
 import logging
+import asyncio
 from typing import Any, Optional, TypeVar, Type
 from pydantic import BaseModel, ValidationError
 from openai import AsyncAzureOpenAI, APIError, RateLimitError, APIConnectionError
 
 from config import settings
+from services.llm.prompts import (
+    get_relevance_prompt,
+    get_synthesis_prompt,
+    get_intent_classification_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,34 +27,40 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMServiceError(Exception):
-    """Custom exception for LLM service errors.
-    
-    Args:
-        message: Error description
-        original_error: Original exception that caused this error
-    """
+    """Custom exception for LLM service errors."""
     
     def __init__(self, message: str, original_error: Optional[Exception] = None):
         super().__init__(message)
         self.original_error = original_error
 
 
+class QueryIntent(BaseModel):
+    """Parsed query intent from classification."""
+    primary_intent: str
+    sources_needed: list[str]
+    time_reference: Optional[str] = None
+    entities: list[str] = []
+    complexity: str = "simple"
+
+
+class RelevanceResult(BaseModel):
+    """Parsed relevance scoring result."""
+    reasoning: str
+    score: float
+    confidence: str
+    retrieval_plan: Optional[str] = None
+    search_terms: list[str] = []
+
+
 class OpenAIService:
-    """Wrapper service for Azure OpenAI GPT-5 API.
+    """Optimized Azure OpenAI GPT-5 service.
     
-    Provides methods for relevance scoring and response synthesis with
-    structured output parsing and error handling.
-    
-    Args:
-        endpoint: Azure OpenAI endpoint (uses config if not provided)
-        api_key: Azure OpenAI API key (uses config if not provided)
-        deployment: Deployment name (uses config if not provided)
-        
-    Examples:
-        >>> service = OpenAIService()
-        >>> response = await service.generate("What is 2+2?")
-        >>> print(response)
-        "2+2 equals 4."
+    Features:
+    - Intent classification for smart agent routing
+    - Chain-of-thought relevance scoring
+    - Few-shot response synthesis
+    - Request timeout handling
+    - Structured output parsing
     """
     
     def __init__(
@@ -66,27 +81,21 @@ class OpenAIService:
             api_version=self.api_version
         )
         
+        # Default timeouts
+        self._default_timeout = 30.0
+        self._quick_timeout = 10.0
+        
     async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        timeout: Optional[float] = None
     ) -> str:
-        """Generate a text response from GPT-5.
+        """Generate a text response from GPT-5 with timeout handling."""
+        timeout = timeout or self._default_timeout
         
-        Args:
-            prompt: User prompt/query
-            system_prompt: Optional system instructions
-            max_tokens: Maximum tokens in response
-            temperature: Sampling temperature (0.0-1.0)
-            
-        Returns:
-            str: Generated text response
-            
-        Raises:
-            LLMServiceError: If API call fails
-        """
         try:
             messages = []
             
@@ -95,15 +104,21 @@ class OpenAIService:
                 
             messages.append({"role": "user", "content": prompt})
             
-            response = await self.client.chat.completions.create(
-                model=self.deployment,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.deployment,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                ),
+                timeout=timeout
             )
             
             return response.choices[0].message.content
             
+        except asyncio.TimeoutError:
+            logger.error(f"LLM request timed out after {timeout}s")
+            raise LLMServiceError(f"Request timed out after {timeout} seconds")
         except RateLimitError as e:
             logger.error(f"Rate limit exceeded: {e}")
             raise LLMServiceError("Rate limit exceeded, please retry later", e)
@@ -114,6 +129,156 @@ class OpenAIService:
             logger.error(f"API error: {e}")
             raise LLMServiceError(f"Azure OpenAI API error: {str(e)}", e)
             
+    def _parse_json_response(self, response: str) -> dict:
+        """Parse JSON from LLM response, handling markdown code blocks."""
+        cleaned = response.strip()
+        
+        # Remove markdown code blocks if present
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            # Remove first line (```json) and last line (```)
+            if lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1])
+            else:
+                cleaned = "\n".join(lines[1:])
+            cleaned = cleaned.strip()
+            
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON: {cleaned[:200]}...")
+            raise LLMServiceError(f"Invalid JSON response: {str(e)}")
+            
+    async def classify_intent(self, query: str) -> QueryIntent:
+        """Classify query intent for smart agent routing.
+        
+        Args:
+            query: User's natural language query
+            
+        Returns:
+            QueryIntent: Classified intent with sources needed
+        """
+        prompt = get_intent_classification_prompt(query)
+        
+        try:
+            response = await self.generate(
+                prompt=prompt,
+                temperature=0.1,  # Low temperature for consistent classification
+                max_tokens=500,
+                timeout=self._quick_timeout
+            )
+            
+            data = self._parse_json_response(response)
+            return QueryIntent(**data)
+            
+        except Exception as e:
+            logger.warning(f"Intent classification failed: {e}, defaulting to multi_source")
+            # Default to checking all sources if classification fails
+            return QueryIntent(
+                primary_intent="multi_source",
+                sources_needed=["calendar", "email", "files"],
+                complexity="moderate"
+            )
+            
+    async def evaluate_relevance(
+        self,
+        query: str,
+        agent_name: str,
+        data_source_description: str
+    ) -> dict[str, Any]:
+        """Evaluate query relevance with chain-of-thought reasoning.
+        
+        Args:
+            query: User's natural language query
+            agent_name: Name of the agent being evaluated
+            data_source_description: Description of the data source (unused, using prompts.py)
+            
+        Returns:
+            dict: Contains score, reasoning, confidence, and search_terms
+        """
+        prompt = get_relevance_prompt(agent_name, query)
+        
+        try:
+            response = await self.generate(
+                prompt=prompt,
+                temperature=0.2,  # Low temperature for consistent scoring
+                max_tokens=800,
+                timeout=self._quick_timeout
+            )
+            
+            data = self._parse_json_response(response)
+            
+            # Validate and normalize the response
+            return {
+                "score": float(data.get("score", 0.0)),
+                "justification": data.get("reasoning", "No reasoning provided"),
+                "confidence": data.get("confidence", "medium"),
+                "retrieval_plan": data.get("retrieval_plan", ""),
+                "suggested_search_terms": data.get("search_terms", [])
+            }
+            
+        except Exception as e:
+            logger.warning(f"Relevance evaluation failed for {agent_name}: {e}")
+            return {
+                "score": 0.3,  # Default to low-moderate score
+                "justification": f"Evaluation failed: {str(e)}",
+                "confidence": "low",
+                "suggested_search_terms": []
+            }
+            
+    async def synthesize_response(
+        self,
+        query: str,
+        agent_results: list[dict[str, Any]]
+    ) -> str:
+        """Synthesize a coherent response using few-shot prompting.
+        
+        Args:
+            query: Original user query
+            agent_results: List of results from triggered agents
+            
+        Returns:
+            str: Well-formatted, grounded response
+        """
+        prompt = get_synthesis_prompt(query, agent_results)
+        
+        try:
+            response = await self.generate(
+                prompt=prompt,
+                temperature=0.5,  # Moderate temperature for natural responses
+                max_tokens=2000,
+                timeout=self._default_timeout
+            )
+            
+            return response.strip()
+            
+        except Exception as e:
+            logger.error(f"Response synthesis failed: {e}")
+            # Provide a graceful fallback
+            return self._generate_fallback_response(query, agent_results)
+            
+    def _generate_fallback_response(
+        self,
+        query: str,
+        agent_results: list[dict[str, Any]]
+    ) -> str:
+        """Generate a simple fallback response when synthesis fails."""
+        successful_agents = [r for r in agent_results if r.get("data")]
+        
+        if not successful_agents:
+            return "I wasn't able to find relevant information for your query. Please try rephrasing or ask about calendar events, emails, or files."
+            
+        # Simple data dump
+        parts = ["Here's what I found:\n"]
+        
+        for result in successful_agents:
+            agent_name = result.get("agent_name", "Unknown").capitalize()
+            data = result.get("data", [])
+            count = len(data)
+            parts.append(f"**{agent_name}**: {count} item(s) found")
+            
+        return "\n".join(parts)
+        
     async def generate_structured(
         self,
         prompt: str,
@@ -122,33 +287,7 @@ class OpenAIService:
         max_tokens: int = 4096,
         temperature: float = 0.3
     ) -> T:
-        """Generate a structured response validated against a Pydantic model.
-        
-        Args:
-            prompt: User prompt requesting structured output
-            response_model: Pydantic model class to validate response
-            system_prompt: Optional system instructions
-            max_tokens: Maximum tokens in response
-            temperature: Sampling temperature (lower for structured output)
-            
-        Returns:
-            T: Validated Pydantic model instance
-            
-        Raises:
-            LLMServiceError: If API call or validation fails
-            
-        Examples:
-            >>> class ScoreResponse(BaseModel):
-            ...     score: float
-            ...     reason: str
-            >>> result = await service.generate_structured(
-            ...     "Rate this query relevance",
-            ...     ScoreResponse
-            ... )
-            >>> print(result.score)
-            0.85
-        """
-        # Build JSON schema instruction
+        """Generate a structured response validated against a Pydantic model."""
         schema = response_model.model_json_schema()
         schema_str = json.dumps(schema, indent=2)
         
@@ -156,8 +295,7 @@ class OpenAIService:
 
 {schema_str}
 
-IMPORTANT: Return ONLY the JSON object, no markdown formatting, no explanations.
-Do not wrap the response in ```json``` blocks."""
+IMPORTANT: Return ONLY the JSON object, no markdown formatting, no explanations."""
 
         if system_prompt:
             enhanced_system = f"{system_prompt}\n\n{enhanced_system}"
@@ -170,160 +308,22 @@ Do not wrap the response in ```json``` blocks."""
                 temperature=temperature
             )
             
-            # Clean the response (remove potential markdown formatting)
-            cleaned = raw_response.strip()
-            if cleaned.startswith("```"):
-                # Remove markdown code block
-                lines = cleaned.split("\n")
-                cleaned = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
-                cleaned = cleaned.strip()
-                
-            # Parse JSON
-            try:
-                data = json.loads(cleaned)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {raw_response}")
-                raise LLMServiceError(f"Invalid JSON response: {str(e)}", e)
-                
-            # Validate against Pydantic model
-            try:
-                return response_model.model_validate(data)
-            except ValidationError as e:
-                logger.error(f"Validation failed: {e}")
-                raise LLMServiceError(f"Response validation failed: {str(e)}", e)
-                
+            data = self._parse_json_response(raw_response)
+            return response_model.model_validate(data)
+            
         except LLMServiceError:
             raise
+        except ValidationError as e:
+            logger.error(f"Validation failed: {e}")
+            raise LLMServiceError(f"Response validation failed: {str(e)}", e)
         except Exception as e:
             logger.error(f"Unexpected error in structured generation: {e}")
             raise LLMServiceError(f"Unexpected error: {str(e)}", e)
             
-    async def evaluate_relevance(
-        self,
-        query: str,
-        agent_name: str,
-        data_source_description: str
-    ) -> dict[str, Any]:
-        """Evaluate query relevance for a specific data source.
-        
-        Args:
-            query: User's natural language query
-            agent_name: Name of the agent being evaluated
-            data_source_description: Description of what the data source contains
-            
-        Returns:
-            dict: Contains score, justification, and suggested_search_terms
-            
-        Raises:
-            LLMServiceError: If evaluation fails
-        """
-        prompt = f"""Evaluate if this user query requires data from {agent_name}.
-
-Data Source Description: {data_source_description}
-
-User Query: {query}
-
-Provide your evaluation as JSON with these fields:
-- score: float between 0.0 and 1.0 indicating relevance
-- justification: brief explanation (max 100 words)
-- suggested_search_terms: list of terms to use for searching this data source
-
-Scoring Guidelines:
-- 1.0: Query explicitly and directly requests this type of data
-- 0.7-0.9: Query strongly implies need for this data
-- 0.4-0.6: Query might benefit from this data
-- 0.1-0.3: Query has weak connection to this data
-- 0.0: Query has no relation to this data source"""
-
-        system_prompt = f"""You are the {agent_name} relevance evaluator. 
-Your job is to determine if a user query requires data from your data source.
-Be precise and objective in your scoring. Do not inflate scores."""
-
-        response = await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            temperature=0.2  # Low temperature for consistent scoring
-        )
-        
-        # Parse the JSON response
-        try:
-            # Clean potential markdown
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                lines = cleaned.split("\n")
-                cleaned = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
-                cleaned = cleaned.strip()
-                
-            return json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse relevance response: {response}")
-            # Return a safe default
-            return {
-                "score": 0.0,
-                "justification": "Failed to evaluate relevance",
-                "suggested_search_terms": []
-            }
-            
-    async def synthesize_response(
-        self,
-        query: str,
-        agent_results: list[dict[str, Any]]
-    ) -> str:
-        """Synthesize a final response from multiple agent results.
-        
-        Args:
-            query: Original user query
-            agent_results: List of results from triggered agents
-            
-        Returns:
-            str: Coherent natural language response
-            
-        Raises:
-            LLMServiceError: If synthesis fails
-        """
-        # Build context from agent results
-        context_parts = []
-        for result in agent_results:
-            agent_name = result.get("agent_name", "Unknown")
-            data = result.get("data", [])
-            if data:
-                context_parts.append(f"### Data from {agent_name}:\n{json.dumps(data, indent=2, default=str)}")
-                
-        context = "\n\n".join(context_parts) if context_parts else "No data was retrieved from any source."
-        
-        prompt = f"""Based on the following data retrieved from various sources, provide a helpful and accurate response to the user's query.
-
-User Query: {query}
-
-Retrieved Data:
-{context}
-
-Instructions:
-1. Synthesize the information into a clear, natural response
-2. Only include information that is present in the retrieved data
-3. If data is insufficient, acknowledge what's missing
-4. Do not make up or hallucinate any information
-5. Be concise but complete
-6. If there are dates/times, format them in a human-readable way"""
-
-        system_prompt = """You are a helpful assistant that synthesizes information from multiple data sources.
-You must only use the data provided - never invent or assume information.
-Always cite which source (Calendar, Gmail, Drive) information came from when relevant."""
-
-        return await self.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            temperature=0.5
-        )
-        
     async def health_check(self) -> bool:
-        """Check if the OpenAI service is operational.
-        
-        Returns:
-            bool: True if service is healthy
-        """
+        """Check if the OpenAI service is operational."""
         try:
-            await self.generate("Say 'ok'", max_tokens=10)
+            await self.generate("Say 'ok'", max_tokens=10, timeout=10.0)
             return True
         except Exception as e:
             logger.error(f"Health check failed: {e}")
@@ -334,11 +334,7 @@ Always cite which source (Calendar, Gmail, Drive) information came from when rel
         await self.client.close()
         
     def get_metrics(self) -> dict[str, Any]:
-        """Get service metrics.
-        
-        Returns:
-            dict: Service metrics including model info
-        """
+        """Get service metrics."""
         return {
             "deployment": self.deployment,
             "endpoint": self.endpoint,
@@ -350,4 +346,3 @@ Always cite which source (Calendar, Gmail, Drive) information came from when rel
 
 # Alias for backward compatibility
 LLMService = OpenAIService
-

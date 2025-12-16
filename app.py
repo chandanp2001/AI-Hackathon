@@ -1,4 +1,4 @@
-"""FastAPI application for the Multi-Agent Data Connector system.
+e"""FastAPI application for the Multi-Agent Data Connector system.
 
 This module provides the REST API endpoints for:
 - Query processing via the orchestrator
