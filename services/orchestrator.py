@@ -1047,17 +1047,109 @@ class Orchestrator:
         except Exception as e:
             logger.warning(f"Error checking availability: {e}")
             return None  # Don't block on availability check failures
+    
+    def _get_editable_fields(
+        self,
+        action_type: ActionType,
+        params: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        """Get editable fields configuration for an action type.
+        
+        Returns field definitions that the frontend can use to render
+        editable inputs for optional parameters.
+        
+        Args:
+            action_type: Type of action
+            params: Current parameters
+            
+        Returns:
+            dict of field_name -> {value, editable, type, label, placeholder}
+        """
+        if action_type == ActionType.CREATE_EVENT:
+            return {
+                "title": {
+                    "value": params.get("title", ""),
+                    "editable": True,
+                    "type": "text",
+                    "label": "Title",
+                    "required": True
+                },
+                "location": {
+                    "value": params.get("location") or "",
+                    "editable": True,
+                    "type": "text",
+                    "label": "Location",
+                    "placeholder": "e.g., Conference Room A, Google Meet",
+                    "required": False
+                },
+                "description": {
+                    "value": params.get("description") or "",
+                    "editable": True,
+                    "type": "textarea",
+                    "label": "Description / Agenda",
+                    "placeholder": "Add meeting agenda or notes...",
+                    "required": False
+                },
+                "duration_minutes": {
+                    "value": params.get("duration_minutes") or 60,
+                    "editable": True,
+                    "type": "number",
+                    "label": "Duration (minutes)",
+                    "required": False
+                }
+            }
+        elif action_type == ActionType.SEND_EMAIL:
+            return {
+                "subject": {
+                    "value": params.get("subject", ""),
+                    "editable": True,
+                    "type": "text",
+                    "label": "Subject",
+                    "required": True
+                },
+                "body": {
+                    "value": params.get("body", ""),
+                    "editable": True,
+                    "type": "textarea",
+                    "label": "Message Body",
+                    "placeholder": "Enter your message...",
+                    "required": True
+                }
+            }
+        elif action_type == ActionType.CREATE_DRAFT:
+            return {
+                "subject": {
+                    "value": params.get("subject", ""),
+                    "editable": True,
+                    "type": "text",
+                    "label": "Subject",
+                    "required": False
+                },
+                "body": {
+                    "value": params.get("body", ""),
+                    "editable": True,
+                    "type": "textarea",
+                    "label": "Message Body",
+                    "placeholder": "Enter your message...",
+                    "required": False
+                }
+            }
+        
+        # Default: no editable fields
+        return {}
             
     async def execute_action_plan(
         self,
         plan_id: str,
-        credentials: Credentials
+        credentials: Credentials,
+        edited_parameters: Optional[dict[str, Any]] = None
     ) -> ActionResult:
         """Execute a confirmed action plan.
         
         Args:
             plan_id: ID of the plan to execute
             credentials: User credentials
+            edited_parameters: Optional user-edited parameters to merge
             
         Returns:
             ActionResult: Result of the execution
@@ -1074,6 +1166,8 @@ class Orchestrator:
             )
             
         logger.info(f"Executing action plan {plan_id}: {plan.summary}")
+        if edited_parameters:
+            logger.info(f"User edited parameters: {edited_parameters}")
         
         step_results: list[ActionStepResult] = []
         all_links: dict[str, str] = {}
@@ -1094,13 +1188,20 @@ class Orchestrator:
                 
             agent = self._agents[agent_name]
             
+            # Merge edited parameters into step parameters
+            step_params = dict(step.parameters) if step.parameters else {}
+            if edited_parameters:
+                for key, value in edited_parameters.items():
+                    if value is not None and value != '':
+                        step_params[key] = value
+            
             try:
-                # Execute the action
+                # Execute the action with merged parameters
                 result = await asyncio.wait_for(
                     agent.execute_action(
                         action_type=step.action_type,
                         credentials=credentials,
-                        params=step.parameters
+                        params=step_params
                     ),
                     timeout=self._agent_timeout
                 )

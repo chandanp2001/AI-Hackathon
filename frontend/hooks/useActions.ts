@@ -5,7 +5,7 @@ import { ActionPlanResponse, ActionExecutionResponse } from '@/services/types';
 interface UseActionsReturn {
   pendingAction: ActionPlanResponse | null;
   isExecuting: boolean;
-  confirm: () => Promise<void>;
+  confirm: (editedParameters?: Record<string, unknown>) => Promise<void>;
   cancel: () => Promise<void>;
   hasPendingAction: boolean;
 }
@@ -18,8 +18,8 @@ export function useActions(): UseActionsReturn {
     cancelPendingAction 
   } = useChatStore();
 
-  const confirm = useCallback(async () => {
-    await confirmAction();
+  const confirm = useCallback(async (editedParameters?: Record<string, unknown>) => {
+    await confirmAction(editedParameters);
   }, [confirmAction]);
 
   const cancel = useCallback(async () => {

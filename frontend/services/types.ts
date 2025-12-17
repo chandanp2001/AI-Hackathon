@@ -33,6 +33,16 @@ export interface ActionStep {
   action: string;
   description: string;
   agent: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface EditableField {
+  value: string | number | null;
+  editable: boolean;
+  type: 'text' | 'textarea' | 'number';
+  label: string;
+  placeholder?: string;
+  required?: boolean;
 }
 
 export interface ActionPlanResponse {
@@ -42,6 +52,7 @@ export interface ActionPlanResponse {
   summary: string;
   preview: string;
   steps: ActionStep[];
+  editable_fields?: Record<string, EditableField>;
   risk_level: 'low' | 'medium' | 'high';
   requires_confirmation: boolean;
   estimated_duration: string;
@@ -85,6 +96,7 @@ export type ApiResponse = QueryResponse | ActionPlanResponse | ClarificationResp
 export interface ActionExecuteRequest {
   plan_id: string;
   user_id: string;
+  edited_parameters?: Record<string, unknown>;
 }
 
 export interface StepResult {

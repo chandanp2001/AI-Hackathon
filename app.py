@@ -162,6 +162,10 @@ class ActionConfirmRequest(BaseModel):
     """Request to confirm and execute an action plan."""
     plan_id: str = Field(..., description="ID of the action plan to execute")
     user_id: str = Field(..., description="User identifier")
+    edited_parameters: Optional[dict[str, Any]] = Field(
+        default=None, 
+        description="User-edited parameters to merge into the action plan"
+    )
 
 
 class ActionCancelRequest(BaseModel):
@@ -777,7 +781,11 @@ async def execute_action(request: ActionConfirmRequest):
         
     # Execute the plan
     try:
-        result = await orchestrator.execute_action_plan(request.plan_id, credentials)
+        result = await orchestrator.execute_action_plan(
+            request.plan_id, 
+            credentials,
+            edited_parameters=request.edited_parameters
+        )
         
         return ActionExecutionResponse(
             plan_id=result.plan_id,

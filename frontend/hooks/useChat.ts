@@ -64,7 +64,7 @@ interface ChatStore {
   sendMessage: (query: string) => Promise<void>;
   
   // Action handling
-  confirmAction: () => Promise<void>;
+  confirmAction: (editedParameters?: Record<string, unknown>) => Promise<void>;
   cancelPendingAction: () => Promise<void>;
   setPendingAction: (action: ActionPlanResponse | null) => void;
 }
@@ -217,7 +217,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  confirmAction: async () => {
+  confirmAction: async (editedParameters?: Record<string, unknown>) => {
     const { pendingAction, userId, addMessage, updateMessage } = get();
     
     if (!pendingAction) return;
@@ -229,6 +229,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const result: ActionExecutionResponse = await executeAction({
         plan_id: pendingAction.plan_id,
         user_id: userId,
+        edited_parameters: editedParameters,
       });
       
       updateMessage(loadingId, {
