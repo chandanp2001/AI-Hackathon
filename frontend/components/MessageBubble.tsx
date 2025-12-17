@@ -75,7 +75,20 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
             <>
               {/* Main content */}
               <div className="markdown-content">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    a: ({ node, ...props }) => (
+                      <a
+                        {...props}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary-400 hover:text-primary-300 underline"
+                      />
+                    ),
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
               </div>
 
               {/* Action plan confirmation */}
@@ -112,8 +125,8 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
                 />
               )}
 
-              {/* Raw data cards */}
-              {showRawData && message.metadata?.raw_data && (
+              {/* Raw data cards - show even while loading if data is available */}
+              {(showRawData || message.metadata?.raw_data) && message.metadata?.raw_data && (
                 <DataCards rawData={message.metadata.raw_data} />
               )}
             </>

@@ -20,12 +20,16 @@ from models.agent_response import (
 )
 from services.agents.base_agent import BaseDataAgent
 from services.llm.openai_service import OpenAIService
-from services.data_sources.devrev_source import DevRevDataSource
+from services.data_sources.devrev_mcp_source import DevRevMCPDataSource
 
 logger = logging.getLogger(__name__)
 
 # Patterns for extracting assignee from query
 ASSIGNEE_PATTERNS = [
+    r"on\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",  # Email addresses after "on"
+    r"for\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",  # Email addresses after "for"
+    r"assigned to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",  # Email after "assigned to"
+    r"owned by\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",  # Email after "owned by"
     r"assigned to\s+([A-Za-z][A-Za-z\s\.]+?)(?:\s*$|\s+(?:in|on|for|with|that|which|and|,))",
     r"owned by\s+([A-Za-z][A-Za-z\s\.]+?)(?:\s*$|\s+(?:in|on|for|with|that|which|and|,))",
     r"belonging to\s+([A-Za-z][A-Za-z\s\.]+?)(?:\s*$|\s+(?:in|on|for|with|that|which|and|,))",
@@ -33,21 +37,21 @@ ASSIGNEE_PATTERNS = [
     r"([A-Za-z][A-Za-z\s\.]+?)'s\s+(?:tickets|issues|bugs|tasks)",
 ]
 
-# Singleton instance for DevRevDataSource
-_devrev_source: Optional[DevRevDataSource] = None
+# Singleton instance for DevRevMCPDataSource
+_devrev_source: Optional[DevRevMCPDataSource] = None
 
 
-def get_devrev_data_source() -> DevRevDataSource:
-    """Get or create the DevRev data source instance.
+def get_devrev_data_source() -> DevRevMCPDataSource:
+    """Get or create the DevRev MCP data source instance.
     
     Returns:
-        DevRevDataSource: Singleton instance
+        DevRevMCPDataSource: Singleton instance
     """
     global _devrev_source
     
     if _devrev_source is None:
-        _devrev_source = DevRevDataSource()
-        logger.info("Initialized DevRev data source for agent")
+        _devrev_source = DevRevMCPDataSource()
+        logger.info("Initialized DevRev MCP data source for agent")
     
     return _devrev_source
 
@@ -80,7 +84,7 @@ class DevRevAgent(BaseDataAgent):
         """
         super().__init__(llm_service)
         self._max_results = settings.devrev_max_results
-        self._devrev_source: Optional[DevRevDataSource] = None
+        self._devrev_source: Optional[DevRevMCPDataSource] = None
         
     @property
     def agent_name(self) -> str:
@@ -134,7 +138,7 @@ class DevRevAgent(BaseDataAgent):
                 
             self._devrev_source = get_devrev_data_source()
             self._initialized = True
-            logger.info(f"Agent {self.agent_name} initialized with DevRev data source")
+            logger.info(f"Agent {self.agent_name} initialized with DevRev MCP data source")
         except Exception as e:
             logger.error(f"Failed to initialize DevRev agent: {e}")
             self._initialized = False
@@ -210,12 +214,12 @@ class DevRevAgent(BaseDataAgent):
             assignee = self._extract_assignee(query)
             if assignee:
                 if assignee == "self":
-                    # Get current user's tickets - use the API to get self
+                    # Get current user's tickets - use MCP to get self
                     try:
-                        current_user = await self._devrev_source._make_request("GET", "/dev-users.self", None)
-                        if current_user and current_user.get("dev_user", {}).get("id"):
-                            params['owned_by'] = current_user["dev_user"]["id"]
-                            logger.info(f"Filtering by current user: {current_user['dev_user'].get('display_name')}")
+                        result = await self._devrev_source.mcp_client.call_tool("get_self", {})
+                        if result and result.get("dev_user", {}).get("id"):
+                            params['owned_by'] = result["dev_user"]["id"]
+                            logger.info(f"Filtering by current user: {result['dev_user'].get('display_name')}")
                     except Exception as e:
                         logger.warning(f"Could not get current user: {e}")
                 else:

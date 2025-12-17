@@ -7,6 +7,7 @@ import {
   ActionExecutionResponse,
   ClarificationResponse,
   QueryClarificationResponse,
+  QueryResponse,
   SessionMessage,
 } from '@/services/types';
 import {
@@ -120,11 +121,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // Add user message
     addMessage('user', query);
     
-    // Add loading message
-    const loadingId = addMessage('assistant', '', { isLoading: true });
+    // Add loading message with progressive status
+    const loadingId = addMessage('assistant', 'Processing your query...', { isLoading: true });
     set({ isLoading: true });
 
     try {
+      // Show progressive status updates
+      const statusUpdates = [
+        { delay: 500, message: 'Analyzing query...' },
+        { delay: 1500, message: 'Fetching data from sources...' },
+        { delay: 3000, message: 'Processing results...' },
+      ];
+      
+      const statusTimeouts: NodeJS.Timeout[] = [];
+      statusUpdates.forEach(({ delay, message }) => {
+        const timeout = setTimeout(() => {
+          updateMessage(loadingId, {
+            content: message,
+            metadata: { isLoading: true },
+          });
+        }, delay);
+        statusTimeouts.push(timeout);
+      });
+      
       let response: ApiResponse & { session_id?: string };
       
       // Use session-aware endpoint if we have a session
@@ -146,6 +165,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           set({ sessionId: response.session_id });
         }
       }
+      
+      // Clear status update timeouts
+      statusTimeouts.forEach(timeout => clearTimeout(timeout));
       
       // Handle different response types
       if (isActionPlanResponse(response)) {
@@ -186,11 +208,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           metadata: { isLoading: false },
         });
       } else if (isQueryResponse(response)) {
+        // Show data cards immediately if available, even while response is being processed
+        const queryResponse = response as QueryResponse;
+        
+        // Update with response and show data immediately
         updateMessage(loadingId, {
-          content: response.response,
+          content: queryResponse.response,
           metadata: {
-            agents_triggered: response.agents_triggered,
-            raw_data: response.raw_data,
+            agents_triggered: queryResponse.agents_triggered,
+            raw_data: queryResponse.raw_data,
             isLoading: false,
           },
         });
