@@ -26,12 +26,8 @@ class GoogleAuthError(Exception):
         self.error_code = error_code
 
 
-# Scopes for Google APIs
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/drive.readonly',
-]
+# Scopes for Google APIs - loaded from config for action support
+SCOPES = settings.google_scopes
 
 
 class GoogleAuthService:
@@ -191,11 +187,17 @@ class GoogleAuthService:
         
     async def exchange_code(self, code: str, user_id: str) -> Credentials:
         """Exchange authorization code for tokens."""
+        import os
+        
         if not self._initialized:
             raise GoogleAuthError("Auth service not initialized")
             
         try:
             redirect_uri = self._get_redirect_uri()
+            
+            # Set environment variable to disable scope change warning
+            # Google may return additional scopes (e.g., calendar.readonly with calendar)
+            os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
             
             flow = Flow.from_client_config(
                 self._client_config,
@@ -205,6 +207,9 @@ class GoogleAuthService:
             
             flow.fetch_token(code=code)
             creds = flow.credentials
+            
+            # Log the actual scopes received
+            logger.info(f"Received scopes: {creds.scopes}")
             
             # Save credentials
             await self._store_credentials(user_id, creds)

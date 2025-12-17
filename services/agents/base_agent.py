@@ -88,21 +88,22 @@ class BaseDataAgent(ABC):
     async def evaluate_relevance(self, query: str) -> RelevanceScore:
         """Evaluate if this agent is relevant to the given query.
         
-        Uses the Claude LLM to determine relevance score based on
-        the query content and the agent's data source description.
+        Uses the LLM to determine relevance score based on the query content
+        and the agent's data source description. Also extracts date/time
+        references from the query for dynamic date filtering.
         
         Args:
             query: Natural language query from the user
             
         Returns:
-            RelevanceScore: Score (0.0-1.0) with justification
+            RelevanceScore: Score (0.0-1.0) with justification and optional date_range
             
         Raises:
             Exception: If LLM evaluation fails
             
         Examples:
-            >>> score = await agent.evaluate_relevance("What meetings do I have?")
-            >>> print(f"Score: {score.score}, Reason: {score.justification}")
+            >>> score = await agent.evaluate_relevance("What meetings do I have on Dec 22?")
+            >>> print(f"Score: {score.score}, Date range: {score.date_range}")
         """
         start_time = time.time()
         
@@ -117,12 +118,19 @@ class BaseDataAgent(ABC):
                 agent_name=self.agent_name,
                 score=float(result.get("score", 0.0)),
                 justification=result.get("justification", "No justification provided"),
-                suggested_search_terms=result.get("suggested_search_terms", [])
+                suggested_search_terms=result.get("suggested_search_terms", []),
+                date_range=result.get("date_range")
             )
             
             elapsed = (time.time() - start_time) * 1000
+            
+            # Log with date range info if present
+            date_info = ""
+            if score.date_range:
+                date_info = f", date_range: {score.date_range.get('type', 'unknown')}"
+            
             logger.info(
-                f"Agent {self.agent_name} relevance score: {score.score:.2f} "
+                f"Agent {self.agent_name} relevance score: {score.score:.2f}{date_info} "
                 f"(took {elapsed:.1f}ms)"
             )
             
@@ -135,7 +143,8 @@ class BaseDataAgent(ABC):
                 agent_name=self.agent_name,
                 score=0.0,
                 justification=f"Error evaluating relevance: {str(e)}",
-                suggested_search_terms=[]
+                suggested_search_terms=[],
+                date_range=None
             )
     
     @abstractmethod

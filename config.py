@@ -28,7 +28,7 @@ class Settings(BaseSettings):
         ConfigError: If required environment variables are missing
     """
     
-    # Azure OpenAI Configuration
+    # Azure OpenAI Configuration (Chat/Completion)
     azure_openai_endpoint: str = Field(
         ...,
         description="Azure OpenAI endpoint URL"
@@ -50,6 +50,24 @@ class Settings(BaseSettings):
         description="Model name for reference"
     )
     
+    # Azure OpenAI Embedding Configuration
+    azure_openai_embedding_endpoint: str = Field(
+        default="https://fy26-hackon-q3.openai.azure.com/",
+        description="Azure OpenAI embedding endpoint URL"
+    )
+    azure_openai_embedding_api_key: str = Field(
+        default="ClJZEVcqtGy1s46jRk7WZbp4Hfm9dHJl2wE9XkVj08ktafjLED2NJQQJ99BKAC77bzfXJ3w3AAABACOGQevc",
+        description="Azure OpenAI embedding API key"
+    )
+    azure_openai_embedding_deployment: str = Field(
+        default="fy26-hackon-q3-emb",
+        description="Azure OpenAI embedding deployment name"
+    )
+    azure_openai_embedding_model: str = Field(
+        default="text-embedding-3-large",
+        description="Embedding model name"
+    )
+    
     # Google OAuth Configuration
     google_client_id: str = Field(
         ...,
@@ -64,14 +82,21 @@ class Settings(BaseSettings):
         description="OAuth2 callback URL"
     )
     
-    # Google API Scopes
+    # Google API Scopes (Read + Write for action-capable agents)
     google_scopes: list[str] = Field(
         default=[
-            "https://www.googleapis.com/auth/calendar.readonly",
+            # Calendar - full access for creating/updating events
+            "https://www.googleapis.com/auth/calendar",
+            # Gmail - send and compose emails
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.compose",
+            "https://www.googleapis.com/auth/gmail.modify",
             "https://www.googleapis.com/auth/gmail.readonly",
+            # Drive - file creation and sharing
+            "https://www.googleapis.com/auth/drive.file",
             "https://www.googleapis.com/auth/drive.readonly",
         ],
-        description="Google API scopes to request"
+        description="Google API scopes to request (read + write)"
     )
     
     # Security
@@ -86,16 +111,66 @@ class Settings(BaseSettings):
     
     # Agent Configuration
     relevance_threshold: float = Field(
-        default=0.5,
+        default=0.3,
         ge=0.0,
         le=1.0,
-        description="Minimum relevance score to trigger agent"
+        description="Minimum relevance score to trigger agent (lowered for better recall)"
     )
     
-    # Database
+    # Database - SQLite for tokens
     database_url: str = Field(
         default="sqlite+aiosqlite:///./data/tokens.db",
         description="Database URL for token storage"
+    )
+    
+    # MySQL for sessions
+    mysql_host: str = Field(
+        default="localhost",
+        description="MySQL host"
+    )
+    mysql_port: int = Field(
+        default=3306,
+        description="MySQL port"
+    )
+    mysql_user: str = Field(
+        default="root",
+        description="MySQL username"
+    )
+    mysql_password: str = Field(
+        default="Gymboi@10082001",
+        description="MySQL password"
+    )
+    mysql_database: str = Field(
+        default="multi_agent_connector",
+        description="MySQL database name"
+    )
+    
+    # Slack Configuration (tokens loaded from .env)
+    slack_bot_token: str = Field(
+        ...,
+        description="Slack Bot User OAuth Token for channel operations (from .env)"
+    )
+    slack_user_token: str = Field(
+        ...,
+        description="Slack User OAuth Token for search operations (from .env)"
+    )
+    slack_max_results: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Maximum Slack search results to return"
+    )
+    slack_max_channels: int = Field(
+        default=20,
+        ge=5,
+        le=50,
+        description="Maximum number of Slack channels to search"
+    )
+    slack_messages_per_channel: int = Field(
+        default=15,
+        ge=5,
+        le=50,
+        description="Maximum messages to return per Slack channel"
     )
     
     # Server

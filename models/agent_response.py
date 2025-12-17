@@ -11,6 +11,7 @@ class AgentType(str, Enum):
     CALENDAR = "calendar"
     GMAIL = "gmail"
     DRIVE = "drive"
+    SLACK = "slack"
 
 
 class RelevanceScore(BaseModel):
@@ -21,13 +22,15 @@ class RelevanceScore(BaseModel):
         score: Relevance score from 0.0 to 1.0
         justification: Brief explanation for the score
         suggested_search_terms: Terms the agent would use to search
+        date_range: LLM-extracted date range for time-based queries
         
     Examples:
         >>> score = RelevanceScore(
         ...     agent_name="calendar",
         ...     score=0.95,
         ...     justification="Query explicitly asks about meetings",
-        ...     suggested_search_terms=["meeting", "tomorrow"]
+        ...     suggested_search_terms=["meeting", "tomorrow"],
+        ...     date_range={"start": "2024-12-22T00:00:00", "end": "2024-12-23T00:00:00", "type": "specific_date"}
         ... )
     """
     
@@ -46,6 +49,10 @@ class RelevanceScore(BaseModel):
     suggested_search_terms: list[str] = Field(
         default_factory=list,
         description="Suggested search terms for data retrieval"
+    )
+    date_range: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="LLM-extracted date range with start, end (ISO format), and type"
     )
 
 

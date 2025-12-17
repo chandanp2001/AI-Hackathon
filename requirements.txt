@@ -23,7 +23,21 @@ cryptography==42.0.2
 
 # Database
 aiosqlite==0.19.0
+aiomysql==0.2.0
 
 # Utilities
 python-dotenv==1.0.1
+
+# Slack Integration
+slack-sdk==3.39.0
+dateparser==1.2.2
+
+# Token counting for conversation memory
+tiktoken==0.7.0
+
+# Vector database and semantic search
+chromadb==0.5.0
+
+# Document parsing
+pypdf==4.3.0
 

@@ -4,11 +4,13 @@ from services.agents.base_agent import BaseDataAgent
 from services.agents.calendar_agent import CalendarAgent
 from services.agents.gmail_agent import GmailAgent
 from services.agents.drive_agent import DriveAgent
+from services.agents.slack_agent import SlackAgent
 
 __all__ = [
     "BaseDataAgent",
     "CalendarAgent",
     "GmailAgent",
     "DriveAgent",
+    "SlackAgent",
 ]
 
