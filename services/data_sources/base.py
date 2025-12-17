@@ -32,13 +32,13 @@ class ChannelSummary(BaseModel):
         channel_id: Slack channel ID
         channel_name: Human-readable channel name
         message_count: Number of matching messages
-        relevance_score: Relevance score (0.0 to 1.0)
+        relevance_score: Relevance score from search API (can be > 1.0)
         top_message_preview: Preview of the most relevant message
     """
     channel_id: str
     channel_name: str
     message_count: int
-    relevance_score: float
+    relevance_score: float  # Slack scores can be > 1.0
     top_message_preview: Optional[str] = None
 
 

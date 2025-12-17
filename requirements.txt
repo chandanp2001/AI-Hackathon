@@ -1,0 +1,48 @@
+# FastAPI and server
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# Azure OpenAI
+openai==1.58.1
+
+# Google APIs
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.118.0
+
+# HTTP client
+httpx==0.26.0
+
+# Data validation
+pydantic==2.6.1
+pydantic-settings==2.1.0
+
+# Security
+cryptography==42.0.2
+
+# Database
+aiosqlite==0.19.0
+aiomysql==0.2.0
+
+# Utilities
+python-dotenv==1.0.1
+
+# Slack Integration
+slack-sdk==3.39.0
+dateparser==1.2.2
+
+# Token counting for conversation memory
+tiktoken==0.7.0
+
+# Vector database and semantic search
+chromadb==0.5.0
+
+# Document parsing
+pypdf==4.3.0
+
+# Web scraping for Alpha Docs
+aiohttp==3.9.3
+beautifulsoup4==4.12.3
+lxml==5.1.0
+

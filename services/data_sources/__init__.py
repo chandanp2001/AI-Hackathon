@@ -1,17 +1,18 @@
 """
-Data sources package for Engage Genius.
+Data sources package for the Multi-Agent system.
 
 This package contains implementations for various data sources
-including Slack, Jira, Google services, etc.
+including Slack, Jira, Google services, DevRev, etc.
 """
 
-from services.data_sources.base import (
+from .base import (
     DataSource,
     GlobalSearchResult,
     ChannelSummary,
     FollowUpSuggestion,
 )
-from services.data_sources.slack_source import SlackDataSource
+from .slack_source import SlackDataSource
+from .devrev_source import DevRevDataSource
 
 __all__ = [
     "DataSource",
@@ -19,5 +20,6 @@ __all__ = [
     "ChannelSummary",
     "FollowUpSuggestion",
     "SlackDataSource",
+    "DevRevDataSource",
 ]
 

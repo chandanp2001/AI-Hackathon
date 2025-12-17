@@ -1,5 +1,5 @@
 from typing import Dict, Any, List, Set, Optional, Union
-from services.data_sources.base import (
+from .base import (
     DataSource,
     GlobalSearchResult,
     ChannelSummary,
