@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         encryption_key: Fernet key for encrypting stored tokens
         relevance_threshold: Minimum score for agent activation (0.0-1.0)
         database_url: SQLite database path for token storage
+        devrev_api_key: DevRev Personal Access Token for API access
         
     Raises:
         ConfigError: If required environment variables are missing
@@ -54,10 +55,6 @@ class Settings(BaseSettings):
     azure_openai_embedding_endpoint: str = Field(
         default="https://fy26-hackon-q3.openai.azure.com/",
         description="Azure OpenAI embedding endpoint URL"
-    )
-    azure_openai_embedding_api_key: str = Field(
-        default="ClJZEVcqtGy1s46jRk7WZbp4Hfm9dHJl2wE9XkVj08ktafjLED2NJQQJ99BKAC77bzfXJ3w3AAABACOGQevc",
-        description="Azure OpenAI embedding API key"
     )
     azure_openai_embedding_deployment: str = Field(
         default="fy26-hackon-q3-emb",
@@ -173,6 +170,23 @@ class Settings(BaseSettings):
         description="Maximum messages to return per Slack channel"
     )
     
+    # DevRev Configuration
+    devrev_api_key: Optional[str] = Field(
+        default=None,
+        alias="dev_rev",
+        description="DevRev Personal Access Token (PAT) for API access (from .env DEV_REV)"
+    )
+    devrev_api_url: str = Field(
+        default="https://api.devrev.ai",
+        description="DevRev API base URL"
+    )
+    devrev_max_results: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Maximum DevRev work items to return"
+    )
+    
     # Server
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, description="Server port")
@@ -182,6 +196,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        populate_by_name = True
 
 
 def get_settings() -> Settings:

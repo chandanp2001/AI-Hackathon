@@ -36,6 +36,7 @@ from services.agents.calendar_agent import CalendarAgent
 from services.agents.gmail_agent import GmailAgent
 from services.agents.drive_agent import DriveAgent
 from services.agents.slack_agent import SlackAgent
+from services.agents.devrev_agent import DevRevAgent
 from services.action_planner import ActionPlanner
 from services.llm.openai_service import OpenAIService, QueryIntent
 
@@ -148,7 +149,7 @@ class Orchestrator:
         self,
         relevance_threshold: Optional[float] = None,
         enable_cache: bool = True,
-        agent_timeout: float = 30.0
+        agent_timeout: float = 15.0
     ):
         self.relevance_threshold = relevance_threshold or settings.relevance_threshold
         self._llm_service = OpenAIService()
@@ -164,9 +165,12 @@ class Orchestrator:
             "email": ["gmail"],
             "files": ["drive"],
             "slack": ["slack"],
+            "devrev": ["devrev"],
+            "tickets": ["devrev"],
+            "issues": ["devrev"],
             "messages": ["slack", "gmail"],
-            "multi_source": ["calendar", "gmail", "drive", "slack"],
-            "general": ["calendar", "gmail", "drive", "slack"],
+            "multi_source": ["calendar", "gmail", "drive", "slack", "devrev"],
+            "general": ["calendar", "gmail", "drive", "slack", "devrev"],
         }
         
         # Action type to agent mapping
@@ -195,6 +199,7 @@ class Orchestrator:
             "gmail": GmailAgent(self._llm_service),
             "drive": DriveAgent(self._llm_service),
             "slack": SlackAgent(self._llm_service),
+            "devrev": DevRevAgent(self._llm_service),
         }
         
         # Initialize all agents (with error handling for Slack)
@@ -403,6 +408,9 @@ class Orchestrator:
             "email": "gmail",
             "files": "drive",
             "slack": "slack",
+            "devrev": "devrev",
+            "tickets": "devrev",
+            "issues": "devrev",
         }
         
         agent_names = set()
@@ -414,7 +422,7 @@ class Orchestrator:
         if not agent_names:
             agent_names = set(self._intent_to_agents.get(
                 intent.primary_intent,
-                ["calendar", "gmail", "drive", "slack"]
+                ["calendar", "gmail", "drive", "slack", "devrev"]
             ))
             
         return {name: self._agents[name] for name in agent_names if name in self._agents}
@@ -481,32 +489,16 @@ class Orchestrator:
         scores: dict[str, RelevanceScore],
         credentials: Credentials
     ) -> list[AgentResult]:
-        """Fetch data from agents with timeout handling.
-        
-        Passes both search_terms and date_range from relevance evaluation
-        to enable dynamic date filtering.
-        """
+        """Fetch data from agents with timeout handling."""
         async def fetch_one(name: str, agent: BaseDataAgent) -> AgentResult:
             score = scores.get(name)
             search_terms = score.suggested_search_terms if score else None
             
-            # Extract date_range if available in the relevance score
-            date_range = None
-            if score and hasattr(score, 'date_range'):
-                date_range = score.date_range
-            
             try:
-                # Pass date_range to agents that support it (calendar, gmail)
-                if name in ("calendar", "gmail") and date_range:
-                    result = await asyncio.wait_for(
-                        agent.fetch_data(query, credentials, search_terms, date_range),
-                        timeout=self._agent_timeout
-                    )
-                else:
-                    result = await asyncio.wait_for(
-                        agent.fetch_data(query, credentials, search_terms),
-                        timeout=self._agent_timeout
-                    )
+                result = await asyncio.wait_for(
+                    agent.fetch_data(query, credentials, search_terms),
+                    timeout=self._agent_timeout
+                )
                 return result
             except asyncio.TimeoutError:
                 logger.warning(f"Data fetch timed out for {name}")

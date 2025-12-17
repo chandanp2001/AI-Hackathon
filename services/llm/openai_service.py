@@ -198,7 +198,7 @@ class OpenAIService:
             # Default to checking all sources if classification fails
             return QueryIntent(
                 primary_intent="multi_source",
-                sources_needed=["calendar", "email", "files"],
+                sources_needed=["calendar", "email", "files", "slack", "alpha_docs", "devrev"],
                 complexity="moderate"
             )
             

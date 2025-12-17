@@ -12,6 +12,7 @@ class AgentType(str, Enum):
     GMAIL = "gmail"
     DRIVE = "drive"
     SLACK = "slack"
+    DEVREV = "devrev"
 
 
 class RelevanceScore(BaseModel):

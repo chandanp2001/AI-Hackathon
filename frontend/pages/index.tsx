@@ -20,7 +20,7 @@ import {
 import { checkHealth } from '@/services/api';
 
 // Default user ID - in production, this would come from authentication
-const DEFAULT_USER_ID = 'default_user';
+const DEFAULT_USER_ID = 'chandan.poonacha';
 
 export default function Home() {
   const [userId] = useState(DEFAULT_USER_ID);

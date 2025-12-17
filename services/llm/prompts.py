@@ -138,6 +138,7 @@ Your job is to analyze user queries and determine:
 - **email**: Emails, messages, threads, attachments, senders
 - **files**: Documents, spreadsheets, presentations, PDFs, Drive files
 - **slack**: Slack messages, team discussions, channel conversations, DMs
+- **devrev**: Tickets, issues, bugs, tasks, work items, sprint/backlog items
 
 ## Query Types
 - **read**: User wants to retrieve/view information
@@ -192,6 +193,15 @@ Output: {{"query_type": "read", "primary_intent": "slack", "sources_needed": ["s
 
 Query: "What messages are in the engineering channel?"
 Output: {{"query_type": "read", "primary_intent": "slack", "sources_needed": ["slack"], "action_type": null, "time_reference": null, "entities": ["engineering channel"], "requires_confirmation": false, "complexity": "simple"}}
+
+Query: "Show me all open tickets assigned to me"
+Output: {{"query_type": "read", "primary_intent": "devrev", "sources_needed": ["devrev"], "action_type": null, "time_reference": null, "entities": ["open tickets", "assigned to me"], "requires_confirmation": false, "complexity": "simple"}}
+
+Query: "What's the status of the login bug?"
+Output: {{"query_type": "read", "primary_intent": "devrev", "sources_needed": ["devrev"], "action_type": null, "time_reference": null, "entities": ["login bug"], "requires_confirmation": false, "complexity": "simple"}}
+
+Query: "Find issues related to payment processing"
+Output: {{"query_type": "read", "primary_intent": "devrev", "sources_needed": ["devrev"], "action_type": null, "time_reference": null, "entities": ["payment processing"], "requires_confirmation": false, "complexity": "simple"}}
 
 ## Now classify this query:
 Query: "{query}"
@@ -423,6 +433,90 @@ Best for: team discussions, channel searches, finding conversations, communicati
 Respond with ONLY valid JSON."""
 
 
+DEVREV_RELEVANCE_TEMPLATE = """You are the DevRev relevance evaluator for a personal data assistant.
+
+{datetime_context}
+
+## Your Data Source: DevRev
+DevRev contains:
+- Tickets and issues (bugs, feature requests, support tickets)
+- Work items and tasks with status, priority, and assignments
+- Sprint and backlog items
+- Customer support conversations linked to tickets
+- Issue descriptions, comments, and resolution details
+- Assignees, reporters, and stakeholders
+- Ticket stages (open, in_progress, resolved, closed)
+- Part/component associations
+- Tags and labels for categorization
+- Timeline and activity history
+
+Best for: ticket lookups, issue tracking, bug reports, support requests, work item status, sprint queries
+
+## User Query
+"{query}"
+
+## Evaluation Process (Think step-by-step)
+1. **Query Analysis**: What is the user specifically asking for?
+2. **Source Match**: Does my data source contain this type of information?
+3. **Directness**: Can I directly answer this, or only provide supporting info?
+4. **Retrieval Plan**: What specific data would I search for?
+
+## Scoring Guidelines
+- **0.9-1.0**: Query explicitly requests tickets, issues, bugs, or DevRev data
+- **0.7-0.8**: Query strongly implies need for issue tracking or work item data
+- **0.5-0.6**: Query might benefit from ticket/issue data as supporting info
+- **0.3-0.4**: Weak connection, unlikely to be helpful
+- **0.0-0.2**: No relevance to ticket/issue tracking data
+
+## Keywords that boost score:
+- "ticket", "issue", "bug", "task", "work item", "devrev"
+- "sprint", "backlog", "assigned", "priority", "status"
+- "support request", "feature request", "reported", "resolved"
+- "open tickets", "my issues", "pending bugs"
+
+## Output Format (JSON only)
+{{"reasoning": "Brief step-by-step analysis", "score": 0.85, "confidence": "high", "retrieval_plan": "What I would search for", "search_terms": ["term1", "term2"]}}
+
+Respond with ONLY valid JSON."""
+
+
+ALPHA_DOCS_RELEVANCE_TEMPLATE = """You are the Alpha Docs relevance evaluator for a personal data assistant.
+
+{datetime_context}
+
+## Your Data Source: Alpha Docs
+Alpha Docs contains:
+- Razorpay documentation and guides
+- Payment integration documentation
+- API references and specifications
+- Technical documentation
+- Product documentation
+
+Best for: payment integration queries, Razorpay documentation, API references
+
+## User Query
+"{query}"
+
+## Evaluation Process (Think step-by-step)
+1. **Query Analysis**: What is the user specifically asking for?
+2. **Source Match**: Does my data source contain this type of information?
+3. **Directness**: Can I directly answer this, or only provide supporting info?
+4. **Retrieval Plan**: What specific data would I search for?
+
+## Scoring Guidelines
+- **0.9-1.0**: Query explicitly requests Razorpay docs or payment integration info
+- **0.7-0.8**: Query strongly implies need for payment/API documentation
+- **0.5-0.6**: Query might benefit from documentation as supporting info
+- **0.3-0.4**: Weak connection, unlikely to be helpful
+- **0.0-0.2**: No relevance to documentation data
+
+## Output Format (JSON only)
+{{"reasoning": "Brief step-by-step analysis", "score": 0.85, "confidence": "high", "retrieval_plan": "What I would search for", "search_terms": ["term1", "term2"]}}
+
+Respond with ONLY valid JSON."""
+
+
+
 # =============================================================================
 # QUERY CLARIFICATION PROMPT
 # =============================================================================
@@ -432,6 +526,8 @@ CLARIFICATION_PROMPT = """You are a query analyzer for a personal data assistant
 - Gmail (emails, messages)
 - Google Drive (documents, files, spreadsheets)
 - Slack (team messages, channel discussions)
+- Alpha Docs (Razorpay documentation, payment integration guides, API references)
+- DevRev (tickets, issues, tasks, work items, bug tracking)
 
 {datetime_context}
 
@@ -565,7 +661,7 @@ def get_relevance_prompt(agent_name: str, query: str) -> str:
     """Get the appropriate relevance prompt for an agent with datetime context.
     
     Args:
-        agent_name: Name of the agent (calendar, gmail, drive, slack)
+        agent_name: Name of the agent (calendar, gmail, drive, slack, alpha_docs)
         query: User query
         
     Returns:
@@ -576,6 +672,8 @@ def get_relevance_prompt(agent_name: str, query: str) -> str:
         "gmail": GMAIL_RELEVANCE_TEMPLATE,
         "drive": DRIVE_RELEVANCE_TEMPLATE,
         "slack": SLACK_RELEVANCE_TEMPLATE,
+        "alpha_docs": ALPHA_DOCS_RELEVANCE_TEMPLATE,
+        "devrev": DEVREV_RELEVANCE_TEMPLATE,
     }
     
     datetime_context = get_current_datetime_context()
