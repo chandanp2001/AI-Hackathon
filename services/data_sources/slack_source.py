@@ -75,6 +75,9 @@ class SlackDataSource(DataSource):
         # Last sync times for incremental syncs
         self.last_sync_times = {}
         
+        # Workspace info for permalink generation
+        self.workspace_domain = None
+        
         # Try to load channel cache from disk at startup
         self._load_channel_cache_from_disk()
         
@@ -98,6 +101,50 @@ class SlackDataSource(DataSource):
         else:
             self.default_user_client = None
             logging.warning("No SLACK_USER_TOKEN found in config, search functionality will be limited")
+        
+        # Fetch workspace info for permalink generation
+        self._fetch_workspace_info()
+    
+    def _fetch_workspace_info(self):
+        """Fetch workspace domain for permalink generation."""
+        try:
+            auth_response = self.client.auth_test()
+            if auth_response.get('ok'):
+                # Get team/workspace URL
+                team_id = auth_response.get('team_id')
+                team_info = self.client.team_info(team=team_id)
+                if team_info.get('ok'):
+                    self.workspace_domain = team_info['team'].get('domain')
+                    logging.info(f"Workspace domain set to: {self.workspace_domain}")
+                else:
+                    # Fallback: extract from URL if available
+                    url = auth_response.get('url', '')
+                    if url:
+                        # URL format: https://workspace.slack.com/
+                        self.workspace_domain = url.split('//')[1].split('.')[0] if '//' in url else None
+                    logging.warning(f"Could not fetch team info, using fallback domain: {self.workspace_domain}")
+        except Exception as e:
+            logging.warning(f"Could not fetch workspace info for permalinks: {e}")
+            self.workspace_domain = None
+    
+    def _generate_permalink(self, channel_id: str, timestamp: str) -> str:
+        """Generate a Slack permalink from channel ID and timestamp.
+        
+        Args:
+            channel_id: Slack channel ID (e.g., C01234567)
+            timestamp: Message timestamp (e.g., 1234567890.123456)
+            
+        Returns:
+            Permalink URL string
+        """
+        if not self.workspace_domain:
+            return ""
+        
+        # Convert timestamp to permalink format (remove decimal point)
+        # Slack permalink format: p{timestamp without decimal}
+        permalink_ts = timestamp.replace('.', '')
+        
+        return f"https://{self.workspace_domain}.slack.com/archives/{channel_id}/p{permalink_ts}"
         
     def register_user_token(self, user_id: str, token: str) -> bool:
         """Register a user token for better performance on channel operations"""
@@ -1318,13 +1365,20 @@ class SlackDataSource(DataSource):
                                     if channel_name not in search_results:
                                         search_results[channel_name] = []
                                     
-                                    # Create message object with relevance score
+                                    # Create message object with relevance score and permalink
+                                    timestamp = match.get('ts', '')
+                                    # Try to get permalink from search result, generate if not available
+                                    permalink = match.get('permalink', '')
+                                    if not permalink and timestamp:
+                                        permalink = self._generate_permalink(match_channel_id, timestamp)
+                                    
                                     message = {
                                         'text': match.get('text', ''),
                                         'user': match.get('user', ''),
-                                        'timestamp': match.get('ts', ''),
+                                        'timestamp': timestamp,
                                         'thread_ts': match.get('thread_ts', None),
                                         'relevance_score': match.get('score', 0) * 0.9,  # Use Slack's score
+                                        'permalink': permalink,
                                         'from_search': True  # Mark as coming from search API
                                     }
                                     
@@ -1556,13 +1610,15 @@ class SlackDataSource(DataSource):
                                             if deep_search and relevance_score < 0.1:
                                                 continue
                                         
-                                        # Create formatted message
+                                        # Create formatted message with permalink
+                                        timestamp = msg.get('ts', '')
                                         message = {
                                             'text': msg.get('text', ''),
                                             'user': msg.get('user', ''),
-                                            'timestamp': msg.get('ts', ''),
+                                            'timestamp': timestamp,
                                             'thread_ts': msg.get('thread_ts', None),
                                             'relevance_score': relevance_score,
+                                            'permalink': self._generate_permalink(channel_id, timestamp),
                                             'from_search': False  # Mark as from history API
                                         }
                                         
@@ -1626,17 +1682,20 @@ class SlackDataSource(DataSource):
                                                         if deep_search and relevance_score < 0.1:
                                                             continue
                                                     
+                                                    # Create message with permalink
+                                                    timestamp = msg.get('ts', '')
                                                     message = {
                                                         'text': msg.get('text', ''),
                                                         'user': msg.get('user', ''),
-                                                        'timestamp': msg.get('ts', ''),
+                                                        'timestamp': timestamp,
                                                         'thread_ts': msg.get('thread_ts', None),
                                                         'relevance_score': relevance_score,
+                                                        'permalink': self._generate_permalink(channel_id, timestamp),
                                                         'from_search': False
                                                     }
                                                     
                                                     history_messages.append(message)
-                                                    existing_timestamps.add(msg.get('ts', ''))
+                                                    existing_timestamps.add(timestamp)
                                                 
                                                 cursor = response.get('response_metadata', {}).get('next_cursor')
                                                 api_success = True

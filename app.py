@@ -26,6 +26,10 @@ from models.query import (
     SlackSearchResponse,
     SlackChannelSummary,
     SlackFollowUpSuggestion,
+    SlackThreadSummarizeRequest,
+    SlackThreadSummarizeResponse,
+    SlackThreadMetadata,
+    SlackThreadParticipant,
 )
 from models.action import ActionResult, ActionPlan
 from models.session import (
@@ -53,6 +57,7 @@ auth_service: Optional[GoogleAuthService] = None
 session_store: Optional[SessionStore] = None
 conversation_manager: Optional[ConversationManager] = None
 slack_data_source = None  # Will be initialized on first use
+slack_thread_service = None  # Will be initialized on first use
 
 
 @asynccontextmanager
@@ -332,7 +337,8 @@ async def process_query_with_session(request: QueryRequestWithSession) -> Union[
         query_request = QueryRequest(
             query=request.query,
             user_id=request.user_id,
-            threshold_override=request.threshold_override
+            threshold_override=request.threshold_override,
+            skip_cache=request.skip_cache
         )
         
         response = await orchestrator.process_query(
@@ -341,43 +347,46 @@ async def process_query_with_session(request: QueryRequestWithSession) -> Union[
             conversation_history=conversation_history
         )
         
-        # Store assistant response in session
-        if hasattr(response, 'response'):
-            await conversation_manager.add_message_to_session(
-                session_id=session_id,
-                role="assistant",
-                content=response.response,
-                metadata={
-                    "agents_triggered": [
-                        {"agent_name": a.agent_name, "relevance_score": a.relevance_score}
-                        for a in response.agents_triggered
-                    ] if hasattr(response, 'agents_triggered') else None
-                }
-            )
-            
-            # Generate title for new session
-            if is_new_session:
-                await conversation_manager.generate_session_title(session_id, request.query)
-        elif isinstance(response, dict) and response.get("type") == "action_plan":
-            # Store action plan response
-            await conversation_manager.add_message_to_session(
-                session_id=session_id,
-                role="assistant",
-                content=response.get("preview", "Action plan created"),
-                metadata={"action_plan_id": response.get("plan_id")}
-            )
-            if is_new_session:
-                await conversation_manager.generate_session_title(session_id, request.query)
+        # Store assistant response in session (non-blocking - don't let failures affect response)
+        try:
+            if hasattr(response, 'response'):
+                await conversation_manager.add_message_to_session(
+                    session_id=session_id,
+                    role="assistant",
+                    content=response.response,
+                    metadata={
+                        "agents_triggered": [
+                            {"agent_name": a.agent_name, "relevance_score": a.relevance_score}
+                            for a in response.agents_triggered
+                        ] if hasattr(response, 'agents_triggered') else None
+                    }
+                )
+                
+                # Generate title for new session
+                if is_new_session:
+                    await conversation_manager.generate_session_title(session_id, request.query)
+            elif isinstance(response, dict) and response.get("type") == "action_plan":
+                # Store action plan response
+                await conversation_manager.add_message_to_session(
+                    session_id=session_id,
+                    role="assistant",
+                    content=response.get("preview", "Action plan created"),
+                    metadata={"action_plan_id": response.get("plan_id")}
+                )
+                if is_new_session:
+                    await conversation_manager.generate_session_title(session_id, request.query)
+        except Exception as session_error:
+            logger.warning(f"Failed to store response in session: {session_error}")
         
         # Add session_id to response
         if isinstance(response, dict):
             response["session_id"] = session_id
+            return response
         else:
-            response_dict = response.model_dump()
+            # Use mode='json' to ensure proper datetime serialization
+            response_dict = response.model_dump(mode='json')
             response_dict["session_id"] = session_id
             return response_dict
-            
-        return response
         
     except HTTPException:
         raise
@@ -593,6 +602,123 @@ async def list_slack_channels(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to list channels: {str(e)}"
+        )
+
+
+def get_slack_thread_service():
+    """Get or create the Slack thread service instance."""
+    global slack_thread_service, orchestrator
+    
+    if slack_thread_service is None:
+        from services.slack_service import SlackThreadService
+        slack_thread_service = SlackThreadService()
+        
+        # Set LLM service if orchestrator is available
+        if orchestrator and orchestrator._llm_service:
+            slack_thread_service.set_llm_service(orchestrator._llm_service)
+            
+        logger.info("Initialized Slack thread service")
+    
+    return slack_thread_service
+
+
+@app.post("/api/slack/thread/summarize", response_model=SlackThreadSummarizeResponse, tags=["Slack"])
+async def summarize_slack_thread(request: SlackThreadSummarizeRequest):
+    """Summarize a Slack thread from its URL.
+    
+    Takes a Slack thread URL and returns a summarized version of the thread
+    in the standard QueryResponse format for easy integration with the chat UI.
+    
+    URL Format: https://{workspace}.slack.com/archives/{channel_id}/p{timestamp}
+    
+    Args:
+        request: SlackThreadSummarizeRequest with URL and optional query
+        
+    Returns:
+        SlackThreadSummarizeResponse: Summary in QueryResponse-compatible format
+        
+    Examples:
+        Request:
+        ```json
+        {
+            "url": "https://razorpay.slack.com/archives/C07Q18XM674/p1759741808347769",
+            "user_id": "user_123",
+            "query": "What was the main decision?"
+        }
+        ```
+        
+    Raises:
+        HTTPException: 400 if URL is invalid
+        HTTPException: 500 if summarization fails
+    """
+    start_time = time.time()
+    
+    try:
+        # Get the thread service
+        thread_service = get_slack_thread_service()
+        
+        # Summarize the thread
+        result = await thread_service.summarize_thread_url(
+            url=request.url,
+            query=request.query
+        )
+        
+        processing_time = (time.time() - start_time) * 1000
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to process thread URL")
+            )
+        
+        # Build metadata
+        metadata = None
+        if result.get("metadata"):
+            meta = result["metadata"]
+            participants = []
+            for p in meta.get("participants", []):
+                if isinstance(p, dict):
+                    participants.append(SlackThreadParticipant(
+                        id=p.get("id", ""),
+                        name=p.get("name", ""),
+                        display_name=p.get("display_name")
+                    ))
+            
+            metadata = SlackThreadMetadata(
+                channel_id=meta.get("channel_id", ""),
+                channel_name=meta.get("channel_name"),
+                thread_ts=meta.get("thread_ts", ""),
+                workspace=meta.get("workspace"),
+                message_count=meta.get("message_count", 0),
+                participants=participants,
+                source_url=request.url
+            )
+        
+        # Build response in QueryResponse-compatible format
+        return SlackThreadSummarizeResponse(
+            query=request.url,
+            response=result.get("response", "No summary available"),
+            agents_triggered=[
+                AgentContribution(
+                    agent_name="slack",
+                    relevance_score=1.0,
+                    justification="Thread summarization from URL",
+                    data_count=metadata.message_count if metadata else 0,
+                    execution_time_ms=processing_time
+                )
+            ],
+            raw_data=result.get("raw_data"),
+            metadata=metadata,
+            total_execution_time_ms=processing_time
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Thread summarization failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Thread summarization failed: {str(e)}"
         )
 
 

@@ -175,26 +175,15 @@ class DriveAgent(BaseDataAgent):
             
             files = results.get("files", [])
             
-            # Convert to structured format and optionally fetch content previews
-            # LIMIT: Only fetch content previews for top 5 files to avoid timeout
-            MAX_PREVIEW_FILES = 5
+            # Convert to structured format
+            # NOTE: Content preview fetching is DISABLED by default as it's very slow (5-10s per file)
+            # This improves response time significantly. Content previews can be fetched separately if needed.
             drive_files = []
-            preview_count = 0
             
             for file in files:
                 drive_file = self._parse_file(file)
-                
-                # Try to get content preview for text-based files (limited)
-                if preview_count < MAX_PREVIEW_FILES and self._is_previewable(file.get("mimeType", "")):
-                    try:
-                        content = await self._get_content_preview(
-                            service, file["id"], file.get("mimeType", "")
-                        )
-                        drive_file.content_preview = content
-                        preview_count += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to get preview for {file.get('name')}: {e}")
-                    
+                # Skip content preview fetching to improve performance
+                # Content can be accessed via the web_view_link
                 drive_files.append(drive_file)
                 
             execution_time = (time.time() - start_time) * 1000

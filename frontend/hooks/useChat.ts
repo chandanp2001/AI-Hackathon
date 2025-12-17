@@ -194,6 +194,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             isLoading: false,
           },
         });
+      } else {
+        // Fallback: If response doesn't match any known type, try to extract content
+        console.warn('Unknown response type:', response);
+        const content = (response as any).response || JSON.stringify(response);
+        updateMessage(loadingId, {
+          content: typeof content === 'string' ? content : 'Received response but format is unexpected',
+          metadata: {
+            raw_data: response,
+            isLoading: false,
+          },
+        });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';

@@ -171,16 +171,21 @@ class OpenAIService:
             logger.warning(f"Failed to parse JSON: {cleaned[:200]}...")
             raise LLMServiceError(f"Invalid JSON response: {str(e)}")
             
-    async def classify_intent(self, query: str) -> QueryIntent:
+    async def classify_intent(
+        self, 
+        query: str,
+        conversation_history: Optional[list[dict[str, str]]] = None
+    ) -> QueryIntent:
         """Classify query intent for smart agent routing.
         
         Args:
             query: User's natural language query
+            conversation_history: Optional conversation history to detect follow-ups
             
         Returns:
             QueryIntent: Classified intent with sources needed
         """
-        prompt = get_intent_classification_prompt(query)
+        prompt = get_intent_classification_prompt(query, conversation_history)
         
         try:
             response = await self.generate(

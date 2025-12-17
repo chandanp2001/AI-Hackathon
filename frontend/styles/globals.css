@@ -4,13 +4,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light mode (default) */
 :root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #f8fafc;
+  --card-hover: #e2e8f0;
+  --border: #cbd5e1;
+  --accent: #0ea5e9;
+  --surface-dark: #f1f5f9;
+  --surface-darker: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+}
+
+/* Dark mode */
+.dark {
   --background: #020617;
   --foreground: #f8fafc;
   --card: #0f172a;
   --card-hover: #1e293b;
   --border: #334155;
   --accent: #0ea5e9;
+  --surface-dark: #0f172a;
+  --surface-darker: #020617;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
 }
 
 * {
@@ -29,10 +50,22 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light mode gradient */
+body {
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(14, 165, 233, 0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(168, 85, 247, 0.05), transparent);
+}
+
+/* Dark mode gradient */
+.dark body {
   background-image: 
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(14, 165, 233, 0.15), transparent),
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(168, 85, 247, 0.1), transparent);
-  min-height: 100vh;
 }
 
 /* Scrollbar Styling */
@@ -58,11 +91,11 @@ body {
 /* Custom Components */
 @layer components {
   .glass-card {
-    @apply bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl;
+    @apply bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl border border-slate-200 dark:border-slate-700/50 rounded-2xl;
   }
   
   .glass-card-hover {
-    @apply glass-card hover:bg-slate-800/50 hover:border-slate-600/50 transition-all duration-300;
+    @apply glass-card hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:border-slate-300 dark:hover:border-slate-600/50 transition-all duration-300;
   }
   
   .btn-primary {
@@ -72,8 +105,9 @@ body {
   }
   
   .btn-secondary {
-    @apply px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl 
-           transition-all duration-200 border border-slate-600
+    @apply px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 
+           text-slate-900 dark:text-white font-medium rounded-xl 
+           transition-all duration-200 border border-slate-300 dark:border-slate-600
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   
@@ -84,17 +118,19 @@ body {
   }
   
   .input-field {
-    @apply w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl
-           text-white placeholder-slate-400 focus:outline-none focus:border-primary-500
-           focus:ring-2 focus:ring-primary-500/20 transition-all duration-200;
+    @apply w-full px-4 py-3 bg-white dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 rounded-xl
+           text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 
+           focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 
+           transition-all duration-200;
   }
   
   .message-user {
-    @apply bg-primary-500/20 border border-primary-500/30 text-white;
+    @apply bg-primary-500/20 border border-primary-500/30 text-slate-900 dark:text-white;
   }
   
   .message-assistant {
-    @apply bg-slate-800/50 border border-slate-700/50 text-slate-100;
+    @apply bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 
+           text-slate-900 dark:text-slate-100;
   }
   
   .message-system {
@@ -142,13 +178,13 @@ body {
 
 /* Markdown Content Styling */
 .markdown-content {
-  @apply text-slate-200 leading-relaxed;
+  @apply text-slate-700 dark:text-slate-200 leading-relaxed;
 }
 
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3 {
-  @apply font-semibold text-white mt-4 mb-2;
+  @apply font-semibold text-slate-900 dark:text-white mt-4 mb-2;
 }
 
 .markdown-content h1 {
@@ -185,11 +221,12 @@ body {
 }
 
 .markdown-content code {
-  @apply font-mono text-sm bg-slate-700/50 px-1.5 py-0.5 rounded text-primary-300;
+  @apply font-mono text-sm bg-slate-200 dark:bg-slate-700/50 px-1.5 py-0.5 rounded 
+         text-primary-600 dark:text-primary-300;
 }
 
 .markdown-content pre {
-  @apply bg-slate-800/80 rounded-xl p-4 overflow-x-auto mb-3;
+  @apply bg-slate-100 dark:bg-slate-800/80 rounded-xl p-4 overflow-x-auto mb-3;
 }
 
 .markdown-content pre code {
@@ -197,19 +234,20 @@ body {
 }
 
 .markdown-content a {
-  @apply text-primary-400 hover:text-primary-300 underline underline-offset-2;
+  @apply text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 
+         underline underline-offset-2;
 }
 
 .markdown-content strong {
-  @apply font-semibold text-white;
+  @apply font-semibold text-slate-900 dark:text-white;
 }
 
 .markdown-content blockquote {
-  @apply border-l-4 border-primary-500/50 pl-4 italic text-slate-300 my-3;
+  @apply border-l-4 border-primary-500/50 pl-4 italic text-slate-600 dark:text-slate-300 my-3;
 }
 
 .markdown-content hr {
-  @apply border-slate-700 my-4;
+  @apply border-slate-300 dark:border-slate-700 my-4;
 }
 
 /* Agent Badge Colors */

@@ -75,7 +75,22 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
             <>
               {/* Main content */}
               <div className="markdown-content">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    a: ({ href, children }) => (
+                      <a 
+                        href={href} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary-400 hover:text-primary-300 underline underline-offset-2"
+                      >
+                        {children}
+                      </a>
+                    )
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
               </div>
 
               {/* Action plan confirmation */}
@@ -99,8 +114,10 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
               {message.metadata?.needs_clarification && (
                 <QueryClarificationDisplay 
                   reason={message.metadata.reason}
+                  contextNote={message.metadata.context_note}
                   suggestedQuestions={message.metadata.suggested_questions || []}
                   likelySources={message.metadata.likely_sources || []}
+                  clarityScore={message.metadata.clarity_score}
                 />
               )}
 
@@ -229,11 +246,19 @@ function ClarificationDisplay({ missingParams }: ClarificationDisplayProps) {
 // Query Clarification Display (for ambiguous queries)
 interface QueryClarificationDisplayProps {
   reason?: string;
+  contextNote?: string;
   suggestedQuestions: string[];
   likelySources?: string[];
+  clarityScore?: number;
 }
 
-function QueryClarificationDisplay({ reason, suggestedQuestions, likelySources }: QueryClarificationDisplayProps) {
+function QueryClarificationDisplay({ 
+  reason, 
+  contextNote,
+  suggestedQuestions, 
+  likelySources,
+  clarityScore 
+}: QueryClarificationDisplayProps) {
   if (!suggestedQuestions.length) return null;
 
   const sourceLabels: Record<string, string> = {
@@ -241,6 +266,7 @@ function QueryClarificationDisplay({ reason, suggestedQuestions, likelySources }
     gmail: '📧 Gmail',
     drive: '📁 Drive',
     slack: '💬 Slack',
+    devrev: '🎫 DevRev',
   };
 
   return (
@@ -250,7 +276,9 @@ function QueryClarificationDisplay({ reason, suggestedQuestions, likelySources }
       )}
       
       <div>
-        <p className="text-sm text-slate-300 mb-2">To help you better, could you clarify:</p>
+        <p className="text-sm text-slate-300 mb-2">
+          {contextNote || "To help you better, could you clarify:"}
+        </p>
         <ul className="space-y-2">
           {suggestedQuestions.map((question, idx) => (
             <li 
@@ -275,6 +303,12 @@ function QueryClarificationDisplay({ reason, suggestedQuestions, likelySources }
             </span>
           ))}
         </div>
+      )}
+      
+      {clarityScore !== undefined && clarityScore < 0.5 && (
+        <p className="text-xs text-slate-500 pt-1">
+          💡 Tip: Try being more specific about what you're looking for or which data source to search.
+        </p>
       )}
     </div>
   );

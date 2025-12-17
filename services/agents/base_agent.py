@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from google.oauth2.credentials import Credentials
 
-from models.agent_response import RelevanceScore, AgentResult, AgentType
+from models.agent_response import RelevanceScore, AgentResult, AgentType, ConfidenceLevel
 from services.llm.openai_service import OpenAIService
 
 logger = logging.getLogger(__name__)
@@ -114,12 +114,22 @@ class BaseDataAgent(ABC):
                 data_source_description=self.data_source_description
             )
             
+            # Map string confidence to ConfidenceLevel enum
+            confidence_str = result.get("confidence", "medium").lower()
+            confidence_map = {
+                "high": ConfidenceLevel.HIGH,
+                "medium": ConfidenceLevel.MEDIUM,
+                "low": ConfidenceLevel.LOW
+            }
+            confidence_level = confidence_map.get(confidence_str, ConfidenceLevel.MEDIUM)
+            
             score = RelevanceScore(
                 agent_name=self.agent_name,
                 score=float(result.get("score", 0.0)),
                 justification=result.get("justification", "No justification provided"),
                 suggested_search_terms=result.get("suggested_search_terms", []),
-                date_range=result.get("date_range")
+                date_range=result.get("date_range"),
+                confidence_level=confidence_level
             )
             
             elapsed = (time.time() - start_time) * 1000
@@ -144,7 +154,8 @@ class BaseDataAgent(ABC):
                 score=0.0,
                 justification=f"Error evaluating relevance: {str(e)}",
                 suggested_search_terms=[],
-                date_range=None
+                date_range=None,
+                confidence_level=ConfidenceLevel.LOW
             )
     
     @abstractmethod

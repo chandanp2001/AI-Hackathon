@@ -87,4 +87,8 @@ class QueryRequestWithSession(BaseModel):
     user_id: str
     session_id: Optional[str] = None
     threshold_override: Optional[float] = None
+    skip_cache: bool = Field(
+        default=True,
+        description="Skip cache and fetch fresh data from agents"
+    )
 

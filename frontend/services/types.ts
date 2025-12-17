@@ -6,10 +6,11 @@ export interface QueryRequest {
   query: string;
   user_id: string;
   threshold_override?: number;
+  skip_cache?: boolean;
 }
 
 export interface AgentContribution {
-  agent_name: 'calendar' | 'gmail' | 'drive' | 'slack';
+  agent_name: 'calendar' | 'gmail' | 'drive' | 'slack' | 'devrev';
   relevance_score: number;
   justification: string;
   data_count: number;
@@ -62,9 +63,12 @@ export interface QueryClarificationResponse {
   query: string;
   needs_clarification: boolean;
   reason: string;
+  context_note?: string;
   suggested_questions: string[];
   likely_sources: string[];
   agent_scores?: Record<string, number>;
+  confidence_levels?: Record<string, string>;
+  clarity_score?: number;
 }
 
 // Error Response
@@ -174,6 +178,39 @@ export interface SlackChannel {
   is_private: boolean;
 }
 
+// Slack Thread Types
+export interface SlackThreadSummarizeRequest {
+  url: string;
+  user_id: string;
+  query?: string;
+}
+
+export interface SlackThreadParticipant {
+  id: string;
+  name: string;
+  display_name?: string;
+}
+
+export interface SlackThreadMetadata {
+  channel_id: string;
+  channel_name?: string;
+  thread_ts: string;
+  workspace?: string;
+  message_count: number;
+  participants: SlackThreadParticipant[];
+  source_url: string;
+}
+
+export interface SlackThreadSummarizeResponse {
+  query: string;
+  response: string;
+  agents_triggered: AgentContribution[];
+  raw_data?: Record<string, unknown>;
+  metadata?: SlackThreadMetadata;
+  total_execution_time_ms: number;
+  timestamp: string;
+}
+
 // ============================================================================
 // Data Types (from raw_data)
 // ============================================================================
@@ -239,8 +276,11 @@ export interface Message {
     // Query clarification fields
     needs_clarification?: boolean;
     reason?: string;
+    context_note?: string;
     suggested_questions?: string[];
     likely_sources?: string[];
+    confidence_levels?: Record<string, string>;
+    clarity_score?: number;
   };
 }
 
@@ -290,6 +330,7 @@ export interface SessionCreateRequest {
 
 export interface QueryRequestWithSession extends QueryRequest {
   session_id?: string;
+  skip_cache?: boolean;
 }
 
 // ============================================================================

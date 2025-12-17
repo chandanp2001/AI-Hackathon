@@ -8,8 +8,10 @@ This agent handles:
 import logging
 import re
 import time
-from datetime import datetime, timedelta
+import time as time_module
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
+from zoneinfo import ZoneInfo
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -535,17 +537,33 @@ class CalendarAgent(BaseDataAgent):
                 event_end = self._parse_datetime(event_end)
             if not event_end:
                 event_end = event_start + timedelta(minutes=duration)
+            
+            # Determine timezone - use local timezone if datetime is naive
+            # If datetime is timezone-aware, use its timezone
+            local_tz = self._get_local_timezone()
+            
+            if event_start.tzinfo is not None:
+                # Timezone-aware datetime - extract the timezone
+                # For Google Calendar API, we need to provide the datetime in ISO format
+                start_iso = event_start.isoformat()
+                end_iso = event_end.isoformat()
+            else:
+                # Naive datetime - assume local time
+                start_iso = event_start.isoformat()
+                end_iso = event_end.isoformat()
+            
+            logger.info(f"Creating event: start={start_iso}, end={end_iso}, timezone={local_tz}")
                 
-            # Build event body
+            # Build event body - use local timezone for proper display
             event_body = {
                 "summary": params.get("title", "New Event"),
                 "start": {
-                    "dateTime": event_start.isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": start_iso,
+                    "timeZone": local_tz,
                 },
                 "end": {
-                    "dateTime": event_end.isoformat(),
-                    "timeZone": "UTC",
+                    "dateTime": end_iso,
+                    "timeZone": local_tz,
                 },
             }
             
@@ -924,29 +942,66 @@ class CalendarAgent(BaseDataAgent):
                 execution_time_ms=execution_time
             )
             
+    def _get_local_timezone(self) -> str:
+        """Get the local timezone name for Google Calendar API.
+        
+        Returns:
+            str: IANA timezone name (e.g., 'Asia/Kolkata')
+        """
+        try:
+            # Try to get IANA timezone from system
+            import subprocess
+            result = subprocess.run(['date', '+%Z'], capture_output=True, text=True)
+            tz_abbrev = result.stdout.strip()
+            
+            # Common mappings from abbreviation to IANA name
+            tz_mapping = {
+                'IST': 'Asia/Kolkata',
+                'PST': 'America/Los_Angeles',
+                'PDT': 'America/Los_Angeles',
+                'EST': 'America/New_York',
+                'EDT': 'America/New_York',
+                'CST': 'America/Chicago',
+                'CDT': 'America/Chicago',
+                'MST': 'America/Denver',
+                'MDT': 'America/Denver',
+                'UTC': 'UTC',
+                'GMT': 'UTC',
+            }
+            return tz_mapping.get(tz_abbrev, 'Asia/Kolkata')  # Default to IST
+        except Exception:
+            return 'Asia/Kolkata'  # Default to IST
+    
     def _parse_datetime(self, dt_input: Any) -> Optional[datetime]:
         """Parse a datetime from various input formats.
+        
+        Uses LOCAL time, not UTC, to correctly interpret user's time intentions.
         
         Args:
             dt_input: Datetime, string, or None
             
         Returns:
-            datetime or None
+            datetime or None (timezone-aware when possible)
         """
         if dt_input is None:
             return None
             
         if isinstance(dt_input, datetime):
+            # If naive datetime, assume local time
+            if dt_input.tzinfo is None:
+                return dt_input
             return dt_input
             
         if isinstance(dt_input, str):
-            # Try ISO format first
+            # Try ISO format first (handles timezone-aware strings like "2024-12-18T14:00:00+05:30")
             try:
-                return datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(dt_input.replace("Z", "+00:00"))
+                logger.info(f"Parsed ISO datetime: {parsed.isoformat()}")
+                return parsed
             except ValueError:
                 pass
                 
-            # Try common formats
+            # Try common formats (interpreted as local time)
             formats = [
                 "%Y-%m-%d %H:%M:%S",
                 "%Y-%m-%d %H:%M",
@@ -955,13 +1010,15 @@ class CalendarAgent(BaseDataAgent):
             ]
             for fmt in formats:
                 try:
-                    return datetime.strptime(dt_input, fmt)
+                    parsed = datetime.strptime(dt_input, fmt)
+                    logger.info(f"Parsed datetime (local): {parsed.isoformat()}")
+                    return parsed
                 except ValueError:
                     continue
                     
-            # Handle relative times (basic)
+            # Handle relative times (basic) - use LOCAL time, not UTC
             dt_lower = dt_input.lower()
-            now = datetime.utcnow()
+            now = datetime.now()  # LOCAL time, not utcnow()
             
             if "tomorrow" in dt_lower:
                 base = now + timedelta(days=1)
@@ -971,7 +1028,8 @@ class CalendarAgent(BaseDataAgent):
                 if "at" in dt_lower:
                     time_part = dt_lower.split("at")[-1].strip()
                     base = self._apply_time_to_date(base, time_part)
-                    
+                
+                logger.info(f"Parsed relative datetime (tomorrow): {base.isoformat()}")
                 return base
                 
             if "today" in dt_lower:
@@ -979,6 +1037,7 @@ class CalendarAgent(BaseDataAgent):
                 if "at" in dt_lower:
                     time_part = dt_lower.split("at")[-1].strip()
                     base = self._apply_time_to_date(base, time_part)
+                logger.info(f"Parsed relative datetime (today): {base.isoformat()}")
                 return base
                 
         return None

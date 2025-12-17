@@ -56,6 +56,11 @@ class Settings(BaseSettings):
         default="https://fy26-hackon-q3.openai.azure.com/",
         description="Azure OpenAI embedding endpoint URL"
     )
+    azure_openai_embedding_api_key: str = Field(
+        ...,
+        alias="EMBEDDING",
+        description="Azure OpenAI embedding API key"
+    )
     azure_openai_embedding_deployment: str = Field(
         default="fy26-hackon-q3-emb",
         description="Azure OpenAI embedding deployment name"
@@ -180,11 +185,25 @@ class Settings(BaseSettings):
         default="https://api.devrev.ai",
         description="DevRev API base URL"
     )
+    devrev_mcp_url: str = Field(
+        default="https://api.devrev.ai/mcp/v1",
+        description="DevRev MCP server URL"
+    )
+    devrev_use_mcp: bool = Field(
+        default=True,
+        description="Whether to use DevRev MCP server (falls back to REST API if unavailable)"
+    )
     devrev_max_results: int = Field(
         default=50,
         ge=10,
         le=200,
         description="Maximum DevRev work items to return"
+    )
+    devrev_clarification_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Threshold below which DevRev queries trigger clarification prompts"
     )
     
     # Server

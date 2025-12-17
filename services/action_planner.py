@@ -143,6 +143,7 @@ class ActionPlanner:
         self,
         query: str,
         intent: ActionIntent,
+        conversation_history: Optional[list[dict[str, str]]] = None,
         context: Optional[dict[str, Any]] = None
     ) -> ActionPlan:
         """Create a detailed action plan from query and intent.
@@ -150,6 +151,7 @@ class ActionPlanner:
         Args:
             query: Original user query
             intent: Classified action intent
+            conversation_history: Optional conversation history for context
             context: Optional context (previous messages, user preferences)
             
         Returns:
@@ -163,8 +165,8 @@ class ActionPlanner:
             
         plan_id = str(uuid.uuid4())[:8]
         
-        # Use LLM to extract detailed parameters
-        plan_data = await self._extract_action_parameters(query, intent)
+        # Use LLM to extract detailed parameters with conversation context
+        plan_data = await self._extract_action_parameters(query, intent, conversation_history)
         
         # Build action steps
         steps = self._build_action_steps(intent, plan_data)
@@ -196,13 +198,15 @@ class ActionPlanner:
     async def _extract_action_parameters(
         self,
         query: str,
-        intent: ActionIntent
+        intent: ActionIntent,
+        conversation_history: Optional[list[dict[str, str]]] = None
     ) -> dict[str, Any]:
         """Use LLM to extract detailed parameters from query.
         
         Args:
             query: User query
             intent: Action intent
+            conversation_history: Optional conversation history for context
             
         Returns:
             dict: Extracted parameters
@@ -213,7 +217,8 @@ class ActionPlanner:
                 "query_type": intent.query_type.value,
                 "action_type": intent.action_type.value if intent.action_type else None,
                 "requires_confirmation": intent.requires_confirmation,
-            }
+            },
+            conversation_history=conversation_history
         )
         
         try:
@@ -256,6 +261,10 @@ class ActionPlanner:
         agent = self._action_to_agent.get(intent.action_type, "unknown")
         parameters = plan_data.get("parameters", {})
         
+        # For calendar events, always add Google Meet by default
+        if intent.action_type == ActionType.CREATE_EVENT:
+            parameters = self._enhance_meeting_params(parameters)
+        
         return [
             ActionStep(
                 step_number=1,
@@ -266,6 +275,33 @@ class ActionPlanner:
                 depends_on=[]
             )
         ]
+    
+    def _enhance_meeting_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Enhance meeting parameters with defaults like Google Meet link.
+        
+        Only adds technical settings, does NOT invent user-facing content.
+        
+        Args:
+            params: Original parameters
+            
+        Returns:
+            Enhanced parameters with Google Meet enabled
+        """
+        enhanced = dict(params)
+        
+        # Always add Google Meet link for meetings
+        enhanced["add_meet_link"] = True
+        
+        # Set default duration if not specified (but don't override null with a value
+        # that would prevent user from editing in UI)
+        if enhanced.get("duration_minutes") is None:
+            enhanced["duration_minutes"] = 60
+        
+        # DO NOT auto-generate description - leave it as user specified (or null)
+        # The Google Meet link will be added to the event by the calendar agent
+        # after creation, and shown in the success message
+        
+        return enhanced
         
     def _generate_preview(
         self,

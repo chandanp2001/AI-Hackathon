@@ -15,6 +15,13 @@ class AgentType(str, Enum):
     DEVREV = "devrev"
 
 
+class ConfidenceLevel(str, Enum):
+    """Confidence level for agent responses."""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class RelevanceScore(BaseModel):
     """Relevance score returned by an agent after query evaluation.
     
@@ -24,6 +31,7 @@ class RelevanceScore(BaseModel):
         justification: Brief explanation for the score
         suggested_search_terms: Terms the agent would use to search
         date_range: LLM-extracted date range for time-based queries
+        confidence_level: Agent's confidence in the relevance assessment
         
     Examples:
         >>> score = RelevanceScore(
@@ -31,7 +39,8 @@ class RelevanceScore(BaseModel):
         ...     score=0.95,
         ...     justification="Query explicitly asks about meetings",
         ...     suggested_search_terms=["meeting", "tomorrow"],
-        ...     date_range={"start": "2024-12-22T00:00:00", "end": "2024-12-23T00:00:00", "type": "specific_date"}
+        ...     date_range={"start": "2024-12-22T00:00:00", "end": "2024-12-23T00:00:00", "type": "specific_date"},
+        ...     confidence_level=ConfidenceLevel.HIGH
         ... )
     """
     
@@ -54,6 +63,10 @@ class RelevanceScore(BaseModel):
     date_range: Optional[dict[str, Any]] = Field(
         default=None,
         description="LLM-extracted date range with start, end (ISO format), and type"
+    )
+    confidence_level: ConfidenceLevel = Field(
+        default=ConfidenceLevel.MEDIUM,
+        description="Agent's confidence in the relevance assessment (high, medium, low)"
     )
 
 

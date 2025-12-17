@@ -12,6 +12,7 @@ class QueryRequest(BaseModel):
         query: The natural language query from the user
         user_id: Unique identifier for the user making the request
         threshold_override: Optional override for relevance threshold
+        skip_cache: Force fresh data fetch, bypassing any cache
         
     Examples:
         >>> request = QueryRequest(
@@ -35,6 +36,10 @@ class QueryRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="Override default relevance threshold"
+    )
+    skip_cache: bool = Field(
+        default=True,
+        description="Skip cache and fetch fresh data from agents"
     )
 
 
@@ -98,23 +103,31 @@ class QueryResponse(BaseModel):
 class ClarificationResponse(BaseModel):
     """Response model when the query needs clarification.
     
-    Returned when the LLM cannot determine the user's intent
-    or when no agents meet the relevance threshold.
+    Returned when the LLM cannot determine the user's intent,
+    when no agents meet the relevance threshold, or when
+    agent confidence is low.
     
     Args:
         type: Always "clarification"
         query: Original query submitted
         needs_clarification: Always True
         reason: Why clarification is needed
+        context_note: Context-aware message for the user
         suggested_questions: Questions to help the user clarify
         likely_sources: Data sources that might be relevant
         agent_scores: Relevance scores from each agent
+        confidence_levels: Confidence levels from each agent (high, medium, low)
+        clarity_score: LLM's assessment of query clarity (0.0-1.0)
     """
     
     type: str = Field(default="clarification", description="Response type")
     query: str = Field(..., description="Original query")
     needs_clarification: bool = Field(default=True, description="Clarification needed flag")
     reason: str = Field(..., description="Why clarification is needed")
+    context_note: Optional[str] = Field(
+        default=None,
+        description="Context-aware message based on conversation history"
+    )
     suggested_questions: List[str] = Field(
         default_factory=list,
         description="Questions to help clarify the query"
@@ -126,6 +139,16 @@ class ClarificationResponse(BaseModel):
     agent_scores: Dict[str, float] = Field(
         default_factory=dict,
         description="Relevance scores from each agent"
+    )
+    confidence_levels: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Confidence levels from each agent (high, medium, low)"
+    )
+    clarity_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="LLM's assessment of query clarity"
     )
 
 
@@ -348,6 +371,159 @@ class SlackSearchResponse(BaseModel):
     processing_time_ms: float = Field(
         default=0.0,
         description="Processing time in milliseconds"
+    )
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="Response timestamp"
+    )
+
+
+# =============================================================================
+# Slack Thread Summarization Models
+# =============================================================================
+
+class SlackThreadSummarizeRequest(BaseModel):
+    """Request model for Slack thread summarization.
+    
+    Takes a Slack thread URL and returns a summarized version of the thread.
+    
+    Args:
+        url: Slack thread URL (format: https://{workspace}.slack.com/archives/{channel_id}/p{timestamp})
+        user_id: User identifier for credential lookup
+        query: Optional specific question about the thread
+        
+    Examples:
+        >>> request = SlackThreadSummarizeRequest(
+        ...     url="https://razorpay.slack.com/archives/C07Q18XM674/p1759741808347769",
+        ...     user_id="user_123"
+        ... )
+        >>> 
+        >>> # With a specific question
+        >>> request = SlackThreadSummarizeRequest(
+        ...     url="https://razorpay.slack.com/archives/C07Q18XM674/p1759741808347769",
+        ...     user_id="user_123",
+        ...     query="What was the final decision?"
+        ... )
+    """
+    
+    url: str = Field(
+        ...,
+        description="Slack thread URL to summarize"
+    )
+    user_id: str = Field(
+        ...,
+        description="User identifier for credential lookup"
+    )
+    query: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Optional specific question about the thread"
+    )
+
+
+class SlackThreadParticipant(BaseModel):
+    """A participant in a Slack thread.
+    
+    Args:
+        id: Slack user ID
+        name: User's display name
+        display_name: User's display name from profile
+    """
+    
+    id: str = Field(..., description="Slack user ID")
+    name: str = Field(..., description="User name")
+    display_name: Optional[str] = Field(None, description="Display name")
+
+
+class SlackThreadMessage(BaseModel):
+    """A message in a Slack thread.
+    
+    Args:
+        user: User who sent the message
+        user_id: Slack user ID
+        text: Message content
+        timestamp: When the message was sent
+        is_parent: Whether this is the parent message of the thread
+        reactions: List of reactions on the message
+        attachments: Number of attachments
+        files: Number of files
+    """
+    
+    user: str = Field(..., description="User name")
+    user_id: str = Field(..., description="Slack user ID")
+    text: str = Field(..., description="Message content")
+    timestamp: str = Field(..., description="Formatted timestamp")
+    is_parent: bool = Field(default=False, description="Is parent message")
+    reactions: List[Dict[str, Any]] = Field(default_factory=list, description="Reactions")
+    attachments: int = Field(default=0, description="Number of attachments")
+    files: int = Field(default=0, description="Number of files")
+
+
+class SlackThreadMetadata(BaseModel):
+    """Metadata about a Slack thread.
+    
+    Args:
+        channel_id: Slack channel ID
+        channel_name: Channel name
+        thread_ts: Thread timestamp
+        workspace: Slack workspace
+        message_count: Number of messages in thread
+        participants: List of thread participants
+        source_url: Original thread URL
+    """
+    
+    channel_id: str = Field(..., description="Slack channel ID")
+    channel_name: Optional[str] = Field(None, description="Channel name")
+    thread_ts: str = Field(..., description="Thread timestamp")
+    workspace: Optional[str] = Field(None, description="Slack workspace")
+    message_count: int = Field(default=0, description="Number of messages")
+    participants: List[SlackThreadParticipant] = Field(
+        default_factory=list, 
+        description="Thread participants"
+    )
+    source_url: str = Field(..., description="Original thread URL")
+
+
+class SlackThreadSummarizeResponse(BaseModel):
+    """Response model for Slack thread summarization.
+    
+    Returns the thread summary in a format compatible with QueryResponse,
+    allowing it to be displayed in the chat interface.
+    
+    Args:
+        query: The original URL (treated as query for consistency)
+        response: The summarized thread content
+        agents_triggered: Will contain slack agent info
+        raw_data: Raw thread messages
+        metadata: Thread metadata
+        total_execution_time_ms: Processing time
+        timestamp: Response timestamp
+        
+    Examples:
+        >>> response = SlackThreadSummarizeResponse(
+        ...     query="https://razorpay.slack.com/...",
+        ...     response="## Thread Summary\\n- Key point 1\\n- Key point 2",
+        ...     metadata={...}
+        ... )
+    """
+    
+    query: str = Field(..., description="Original thread URL")
+    response: str = Field(..., description="Summarized thread content")
+    agents_triggered: List[AgentContribution] = Field(
+        default_factory=list,
+        description="Agent contributions (will show Slack)"
+    )
+    raw_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw thread messages"
+    )
+    metadata: Optional[SlackThreadMetadata] = Field(
+        default=None,
+        description="Thread metadata"
+    )
+    total_execution_time_ms: float = Field(
+        default=0.0,
+        description="Processing time"
     )
     timestamp: datetime = Field(
         default_factory=datetime.utcnow,
