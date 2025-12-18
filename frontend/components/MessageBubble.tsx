@@ -77,16 +77,14 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
               <div className="markdown-content">
                 <ReactMarkdown
                   components={{
-                    a: ({ href, children }) => (
-                      <a 
-                        href={href} 
-                        target="_blank" 
+                    a: ({ node, ...props }) => (
+                      <a
+                        {...props}
+                        target="_blank"
                         rel="noopener noreferrer"
-                        className="text-primary-400 hover:text-primary-300 underline underline-offset-2"
-                      >
-                        {children}
-                      </a>
-                    )
+                        className="text-primary-400 hover:text-primary-300 underline"
+                      />
+                    ),
                   }}
                 >
                   {message.content}
@@ -129,8 +127,8 @@ export function MessageBubble({ message, showRawData = false }: MessageBubblePro
                 />
               )}
 
-              {/* Raw data cards */}
-              {showRawData && message.metadata?.raw_data && (
+              {/* Raw data cards - show even while loading if data is available */}
+              {(showRawData || message.metadata?.raw_data) && message.metadata?.raw_data && (
                 <DataCards rawData={message.metadata.raw_data} />
               )}
             </>
@@ -252,12 +250,12 @@ interface QueryClarificationDisplayProps {
   clarityScore?: number;
 }
 
-function QueryClarificationDisplay({ 
-  reason, 
+function QueryClarificationDisplay({
+  reason,
   contextNote,
-  suggestedQuestions, 
+  suggestedQuestions,
   likelySources,
-  clarityScore 
+  clarityScore
 }: QueryClarificationDisplayProps) {
   if (!suggestedQuestions.length) return null;
 
@@ -304,7 +302,7 @@ function QueryClarificationDisplay({
           ))}
         </div>
       )}
-      
+
       {clarityScore !== undefined && clarityScore < 0.5 && (
         <p className="text-xs text-slate-500 pt-1">
           💡 Tip: Try being more specific about what you're looking for or which data source to search.

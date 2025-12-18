@@ -78,6 +78,11 @@ class SlackDataSource(DataSource):
         # Workspace info for permalink generation
         self.workspace_domain = None
         
+        # User name cache to resolve user IDs to display names
+        self.user_name_cache = {}  # Map of user_id -> display_name
+        self.user_name_cache_ttl = 3600  # Cache TTL in seconds (1 hour)
+        self.user_name_cache_time = {}  # Last update time for user names
+        
         # Try to load channel cache from disk at startup
         self._load_channel_cache_from_disk()
         
@@ -145,6 +150,99 @@ class SlackDataSource(DataSource):
         permalink_ts = timestamp.replace('.', '')
         
         return f"https://{self.workspace_domain}.slack.com/archives/{channel_id}/p{permalink_ts}"
+    
+    def _get_user_name(self, user_id: str) -> str:
+        """Get user display name from user ID, with caching.
+        
+        Args:
+            user_id: Slack user ID (e.g., U01234567)
+            
+        Returns:
+            User's display name or real name, falls back to user_id if not found
+        """
+        if not user_id:
+            return "Unknown"
+        
+        # Check cache first
+        now = time.time()
+        if user_id in self.user_name_cache:
+            cache_time = self.user_name_cache_time.get(user_id, 0)
+            if now - cache_time < self.user_name_cache_ttl:
+                return self.user_name_cache[user_id]
+        
+        # Fetch from Slack API
+        try:
+            response = self.client.users_info(user=user_id)
+            if response.get('ok'):
+                user = response.get('user', {})
+                # Prefer display_name, then real_name, then name
+                display_name = (
+                    user.get('profile', {}).get('display_name') or 
+                    user.get('real_name') or 
+                    user.get('name') or 
+                    user_id
+                )
+                # Cache the result
+                self.user_name_cache[user_id] = display_name
+                self.user_name_cache_time[user_id] = now
+                return display_name
+        except SlackApiError as e:
+            logging.warning(f"Failed to fetch user info for {user_id}: {e}")
+        except Exception as e:
+            logging.warning(f"Unexpected error fetching user info for {user_id}: {e}")
+        
+        # Cache the fallback too to avoid repeated API calls
+        self.user_name_cache[user_id] = user_id
+        self.user_name_cache_time[user_id] = now
+        return user_id
+    
+    async def _resolve_user_ids_in_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Resolve user IDs to display names in a list of messages.
+        
+        Args:
+            messages: List of message dicts containing 'user' field with user IDs
+            
+        Returns:
+            Same messages with 'user' field updated to display names
+        """
+        if not messages:
+            return messages
+        
+        # Collect all unique user IDs
+        user_ids = set()
+        for msg in messages:
+            if isinstance(msg, dict):
+                user_id = msg.get('user')
+                if user_id and isinstance(user_id, str) and user_id.startswith('U'):
+                    user_ids.add(user_id)
+                # Also check replies
+                for reply in msg.get('replies', []):
+                    if isinstance(reply, dict):
+                        reply_user_id = reply.get('user')
+                        if reply_user_id and isinstance(reply_user_id, str) and reply_user_id.startswith('U'):
+                            user_ids.add(reply_user_id)
+        
+        # Batch fetch user names (with caching)
+        user_names = {}
+        for user_id in user_ids:
+            user_names[user_id] = self._get_user_name(user_id)
+        
+        # Update messages with user names
+        for msg in messages:
+            if isinstance(msg, dict):
+                user_id = msg.get('user')
+                if user_id and user_id in user_names:
+                    msg['user'] = user_names[user_id]
+                    msg['user_id'] = user_id  # Keep the original ID for reference
+                # Also update replies
+                for reply in msg.get('replies', []):
+                    if isinstance(reply, dict):
+                        reply_user_id = reply.get('user')
+                        if reply_user_id and reply_user_id in user_names:
+                            reply['user'] = user_names[reply_user_id]
+                            reply['user_id'] = reply_user_id
+        
+        return messages
         
     def register_user_token(self, user_id: str, token: str) -> bool:
         """Register a user token for better performance on channel operations"""
@@ -1846,7 +1944,13 @@ class SlackDataSource(DataSource):
                 if deep_search:
                     combined_results[channel_name]['metadata']['deep_search'] = True
             
-            # Step 4: Add global metadata
+            # Step 4: Resolve user IDs to display names
+            for channel_name, channel_data in combined_results.items():
+                if isinstance(channel_data, dict) and 'messages' in channel_data:
+                    messages = channel_data.get('messages', [])
+                    await self._resolve_user_ids_in_messages(messages)
+            
+            # Step 5: Add global metadata
             results = combined_results.copy()
             results['_metadata'] = {
                 'processing_time': time.time() - start_time,
@@ -2652,6 +2756,10 @@ class SlackDataSource(DataSource):
                 # Sort by relevance and limit
                 sorted_messages = sorted(messages, key=lambda m: m.get('relevance_score', 0), reverse=True)
                 limited_results[channel_name] = sorted_messages[:limit_per_channel]
+            
+            # Resolve user IDs to display names
+            for channel_name, messages in limited_results.items():
+                await self._resolve_user_ids_in_messages(messages)
             
             # Generate follow-up suggestions
             follow_up_suggestions = self._generate_follow_up_suggestions(

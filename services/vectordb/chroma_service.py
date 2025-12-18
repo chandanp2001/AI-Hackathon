@@ -98,7 +98,7 @@ class AzureOpenAIEmbeddings:
         api_version: str = "2023-05-15"
     ):
         self._endpoint = endpoint or settings.azure_openai_embedding_endpoint
-        self._api_key = api_key or settings.azure_openai_embedding_api_key
+        self._api_key = api_key or settings.azure_openai_api_key
         self._deployment = deployment or settings.azure_openai_embedding_deployment
         self._api_version = api_version
         self._dimension = 3072  # text-embedding-3-large dimension

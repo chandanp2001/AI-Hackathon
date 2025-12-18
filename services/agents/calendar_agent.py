@@ -881,19 +881,44 @@ class CalendarAgent(BaseDataAgent):
             attendees = params.get("attendees", [])
             if isinstance(attendees, str):
                 attendees = [attendees]
-                
-            time_min = self._parse_datetime(params.get("start_time")) or datetime.utcnow()
+            
+            # Parse start time
+            time_min = self._parse_datetime(params.get("start_time")) or datetime.now()
+            
+            # Calculate end time based on duration (for checking the meeting slot)
+            # Handle None explicitly since dict.get() returns None if key exists with None value
+            duration_minutes = params.get("duration_minutes")
+            if duration_minutes is None:
+                duration_minutes = 60
             time_max = self._parse_datetime(params.get("end_time")) or \
-                (time_min + timedelta(days=7))
+                (time_min + timedelta(minutes=duration_minutes))
+            
+            # Convert to RFC3339 format for Google Calendar API
+            # If datetime is timezone-aware, convert to UTC first
+            def to_rfc3339(dt: datetime) -> str:
+                if dt.tzinfo is not None:
+                    # Convert to UTC and format
+                    utc_dt = dt.astimezone(timezone.utc)
+                    return utc_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+                else:
+                    # Naive datetime - assume it's already UTC
+                    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            
+            time_min_str = to_rfc3339(time_min)
+            time_max_str = to_rfc3339(time_max)
+            
+            logger.info(f"Checking availability from {time_min_str} to {time_max_str} for {attendees}")
                 
             # Build freebusy query
             body = {
-                "timeMin": time_min.isoformat() + "Z",
-                "timeMax": time_max.isoformat() + "Z",
+                "timeMin": time_min_str,
+                "timeMax": time_max_str,
                 "items": [{"id": email} for email in attendees] + [{"id": "primary"}]
             }
             
             freebusy = service.freebusy().query(body=body).execute()
+            
+            logger.info(f"FreeBusy response: {freebusy}")
             
             # Parse results
             availability = {}

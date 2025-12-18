@@ -89,8 +89,28 @@ export interface ErrorResponse {
   execution_time_ms?: number;
 }
 
+// Availability Conflict Response
+export interface AvailabilityConflictResponse {
+  type: 'availability_conflict';
+  message: string;
+  conflicts: Array<{
+    attendee: string;
+    busy_periods: Array<{
+      start: string;
+      end: string;
+    }>;
+  }>;
+  your_conflicts?: Array<{
+    start: string;
+    end: string;
+  }>;
+  suggested_times: string[];
+  original_plan: Record<string, unknown>;
+  execution_time_ms: number;
+}
+
 // Union type for all API responses
-export type ApiResponse = QueryResponse | ActionPlanResponse | ClarificationResponse | QueryClarificationResponse | ErrorResponse;
+export type ApiResponse = QueryResponse | ActionPlanResponse | ClarificationResponse | QueryClarificationResponse | ErrorResponse | AvailabilityConflictResponse;
 
 // Action Execution
 export interface ActionExecuteRequest {

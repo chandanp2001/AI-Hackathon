@@ -182,7 +182,20 @@ export function ActionConfirmationModal({
         {/* Preview */}
         <div className="bg-slate-800/50 rounded-xl p-4 mb-4 border border-slate-700/50">
           <div className="markdown-content text-sm">
-            <ReactMarkdown>{action.preview}</ReactMarkdown>
+            <ReactMarkdown
+              components={{
+                a: ({ node, ...props }) => (
+                  <a
+                    {...props}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary-400 hover:text-primary-300 underline"
+                  />
+                ),
+              }}
+            >
+              {action.preview}
+            </ReactMarkdown>
           </div>
         </div>
 

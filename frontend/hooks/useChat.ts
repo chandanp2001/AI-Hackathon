@@ -7,7 +7,9 @@ import {
   ActionExecutionResponse,
   ClarificationResponse,
   QueryClarificationResponse,
+  QueryResponse,
   SessionMessage,
+  AvailabilityConflictResponse,
 } from '@/services/types';
 import {
   sendQuery,
@@ -19,6 +21,7 @@ import {
   isQueryClarificationResponse,
   isErrorResponse,
   isQueryResponse,
+  isAvailabilityConflictResponse,
 } from '@/services/api';
 
 // Generate simple unique IDs without external dependencies
@@ -120,11 +123,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // Add user message
     addMessage('user', query);
     
-    // Add loading message
-    const loadingId = addMessage('assistant', '', { isLoading: true });
+    // Add loading message with progressive status
+    const loadingId = addMessage('assistant', 'Processing your query...', { isLoading: true });
     set({ isLoading: true });
 
     try {
+      // Show progressive status updates
+      const statusUpdates = [
+        { delay: 500, message: 'Analyzing query...' },
+        { delay: 1500, message: 'Fetching data from sources...' },
+        { delay: 3000, message: 'Processing results...' },
+      ];
+      
+      const statusTimeouts: NodeJS.Timeout[] = [];
+      statusUpdates.forEach(({ delay, message }) => {
+        const timeout = setTimeout(() => {
+          updateMessage(loadingId, {
+            content: message,
+            metadata: { isLoading: true },
+          });
+        }, delay);
+        statusTimeouts.push(timeout);
+      });
+      
       let response: ApiResponse & { session_id?: string };
       
       // Use session-aware endpoint if we have a session
@@ -147,6 +168,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
       }
       
+      // Clear status update timeouts
+      statusTimeouts.forEach(timeout => clearTimeout(timeout));
+      
       // Handle different response types
       if (isActionPlanResponse(response)) {
         const actionPlan = response as ActionPlanResponse;
@@ -155,6 +179,47 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           content: actionPlan.preview,
           metadata: {
             action_plan: actionPlan,
+            isLoading: false,
+          },
+        });
+      } else if (isAvailabilityConflictResponse(response)) {
+        // Handle availability conflict - show formatted message
+        const conflict = response as AvailabilityConflictResponse;
+        
+        // Format the conflict message nicely
+        let formattedMessage = "⚠️ **Scheduling Conflict Detected**\n\n";
+        
+        if (conflict.your_conflicts && conflict.your_conflicts.length > 0) {
+          formattedMessage += "**You** already have events at this time:\n";
+          conflict.your_conflicts.forEach((busy) => {
+            const startTime = new Date(busy.start).toLocaleTimeString('en-US', { 
+              hour: 'numeric', 
+              minute: '2-digit',
+              hour12: true 
+            });
+            const endTime = new Date(busy.end).toLocaleTimeString('en-US', { 
+              hour: 'numeric', 
+              minute: '2-digit',
+              hour12: true 
+            });
+            formattedMessage += `- ${startTime} to ${endTime}\n`;
+          });
+          formattedMessage += "\n";
+        }
+        
+        if (conflict.conflicts && conflict.conflicts.length > 0) {
+          formattedMessage += "**Attendees with conflicts:**\n";
+          conflict.conflicts.forEach((c) => {
+            formattedMessage += `- **${c.attendee}** has ${c.busy_periods.length} conflicting event(s)\n`;
+          });
+          formattedMessage += "\n";
+        }
+        
+        updateMessage(loadingId, {
+          content: formattedMessage,
+          metadata: {
+            availability_conflict: conflict,
+            original_plan: conflict.original_plan,
             isLoading: false,
           },
         });
@@ -186,11 +251,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           metadata: { isLoading: false },
         });
       } else if (isQueryResponse(response)) {
+        // Show data cards immediately if available, even while response is being processed
+        const queryResponse = response as QueryResponse;
+        
+        // Update with response and show data immediately
         updateMessage(loadingId, {
-          content: response.response,
+          content: queryResponse.response,
           metadata: {
-            agents_triggered: response.agents_triggered,
-            raw_data: response.raw_data,
+            agents_triggered: queryResponse.agents_triggered,
+            raw_data: queryResponse.raw_data,
             isLoading: false,
           },
         });

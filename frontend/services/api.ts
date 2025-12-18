@@ -297,18 +297,44 @@ export async function updateSessionTitle(
 export async function sendQueryWithSession(
   request: QueryRequestWithSession
 ): Promise<ApiResponse & { session_id?: string }> {
-  const response = await fetchWithTimeout(`${API_BASE}/query/session`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+  try {
+    const response = await fetchWithTimeout(`${API_BASE}/query/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    
+    if (!response.ok) {
+      let errorDetail = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.text();
+        // Try to parse as JSON, otherwise use raw text
+        try {
+          const errorJson = JSON.parse(errorBody);
+          errorDetail = errorJson.detail || errorJson.message || errorBody;
+        } catch {
+          errorDetail = errorBody || errorDetail;
+        }
+      } catch {
+        // Could not read response body
+      }
+      throw new Error(errorDetail);
+    }
+    
+    return response.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      // Add more context to network errors
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Network error - please check your connection and try again');
+      }
+      if (error.message.includes('timed out')) {
+        throw new Error('Request timed out - the server is taking too long. Please try again.');
+      }
+      throw error;
+    }
+    throw new Error('An unexpected error occurred');
   }
-  
-  return response.json();
 }
 
 // ============================================================================
@@ -329,6 +355,10 @@ export function isQueryClarificationResponse(response: ApiResponse): response is
 
 export function isErrorResponse(response: ApiResponse): response is ApiResponse & { type: 'error' } {
   return 'type' in response && response.type === 'error';
+}
+
+export function isAvailabilityConflictResponse(response: ApiResponse): response is ApiResponse & { type: 'availability_conflict' } {
+  return 'type' in response && response.type === 'availability_conflict';
 }
 
 export function isQueryResponse(response: ApiResponse): response is ApiResponse & { response: string } {

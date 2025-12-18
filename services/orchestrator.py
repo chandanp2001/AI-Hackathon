@@ -981,7 +981,10 @@ class Orchestrator:
         """
         attendees = params.get("attendees", [])
         start_time = params.get("start_time")
-        duration_minutes = params.get("duration_minutes", 60)
+        # Handle None explicitly since params may have duration_minutes: null from LLM
+        duration_minutes = params.get("duration_minutes")
+        if duration_minutes is None:
+            duration_minutes = 60
         
         # Skip check if no attendees or no start time
         if not attendees or not start_time:
@@ -1012,34 +1015,47 @@ class Orchestrator:
             availability_data = availability_result.result_data or {}
             availability_info = availability_data.get("availability", {})
             
+            logger.info(f"Availability info: {availability_info}")
+            
             conflicts = []
+            your_conflicts = []
+            
             for calendar_id, cal_data in availability_info.items():
-                if calendar_id == "primary":
-                    continue  # Skip self
-                    
                 busy_times = cal_data.get("busy_times", [])
                 if busy_times:
-                    conflicts.append({
-                        "attendee": calendar_id,
-                        "busy_periods": busy_times[:3]  # Show up to 3 conflicts
-                    })
+                    if calendar_id == "primary":
+                        # Your own calendar has a conflict
+                        your_conflicts = busy_times[:3]
+                    else:
+                        conflicts.append({
+                            "attendee": calendar_id,
+                            "busy_periods": busy_times[:3]
+                        })
             
-            if conflicts:
+            if your_conflicts or conflicts:
                 # Format a helpful message
-                conflict_names = [c["attendee"] for c in conflicts]
                 message = f"⚠️ **Scheduling Conflict Detected**\n\n"
-                message += f"The following attendee(s) appear to be busy at the proposed time:\n"
-                for conflict in conflicts:
-                    message += f"- **{conflict['attendee']}** has {len(conflict['busy_periods'])} conflicting event(s)\n"
+                
+                if your_conflicts:
+                    message += f"**You** already have {len(your_conflicts)} event(s) at this time:\n"
+                    for busy in your_conflicts:
+                        message += f"  - {busy.get('start', 'N/A')} to {busy.get('end', 'N/A')}\n"
+                    message += "\n"
+                
+                if conflicts:
+                    message += f"The following attendee(s) appear to be busy:\n"
+                    for conflict in conflicts:
+                        message += f"- **{conflict['attendee']}** has {len(conflict['busy_periods'])} conflicting event(s)\n"
+                
                 message += f"\nWould you like to:\n"
-                message += f"1. Proceed anyway (attendees will be notified)\n"
-                message += f"2. Choose a different time\n"
-                message += f"3. Check their full availability for today"
+                message += f"1. Proceed anyway (this will create overlapping events)\n"
+                message += f"2. Choose a different time"
                 
                 return {
                     "message": message,
                     "conflicts": conflicts,
-                    "suggested_times": []  # Could add smart time suggestions here
+                    "your_conflicts": your_conflicts,
+                    "suggested_times": []
                 }
             
             return None  # No conflicts
